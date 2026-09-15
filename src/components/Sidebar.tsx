@@ -2,7 +2,7 @@ import { useEngineStore, type Engine } from '../store/engineStore'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
-  { id: '2d-maplibre', label: 'MapLibre GL JS', badge: '2D' },
+  { id: '2d-maplibre', label: 'MapLibre GL JS', badge: '2.75D' },
   { id: '3d-navara', label: 'Navara 3D', badge: '3D' },
 ]
 

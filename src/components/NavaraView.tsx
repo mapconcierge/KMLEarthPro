@@ -27,18 +27,29 @@ type VectorLayerStyle = {
   polyline?: { color: Color; width: number }
 }
 
-// OpenMapTiles スキーマのソースレイヤーを描画順に定義。
-// Navara の vector レイヤーは属性フィルタを持たないため、
-// ソースレイヤー単位で 1 スタイルを割り当てる。
+// Navara の vector レイヤーは属性フィルタを持たず、ソースレイヤー単位で 1 スタイル
+// しか割り当てられない。landcover は森林・氷河・農地などを 1 レイヤーに含むため、
+// 単色で塗ると地形の上に意味のない斑模様が乗る。featureCreated で class を読んで
+// 色を決め、未知の class は描画しない。
+//
+// landuse と park も同様に多 class だが、こちらは市街地の区分が主で地形表現の
+// 邪魔になるうえジオメトリ量が最大級のため、レイヤーごと描画しない。
+const LANDCOVER_COLORS: Record<string, number> = {
+  wood: 0x8fae74,
+  grass: 0xb3cf95,
+  farmland: 0xd4d8a0,
+  ice: 0xf0f4f8,
+  rock: 0xb8b2a8,
+  sand: 0xe4d9b8,
+  wetland: 0x9fc0ad,
+}
+
 const VECTOR_LAYERS: VectorLayerStyle[] = [
-  { sourceLayers: ['landcover'], polygon: { color: hex(0xc8dcb4) } },
-  { sourceLayers: ['landuse'], polygon: { color: hex(0xe6ddd0) } },
-  { sourceLayers: ['park'], polygon: { color: hex(0xb2d492) } },
-  { sourceLayers: ['water'], polygon: { color: hex(0x7fb0dc) } },
-  { sourceLayers: ['waterway'], polyline: { color: hex(0x7fb0dc), width: 1 } },
-  { sourceLayers: ['transportation'], polyline: { color: hex(0x8a8175), width: 1 } },
-  { sourceLayers: ['boundary'], polyline: { color: hex(0x9a7fa8), width: 1 } },
-  { sourceLayers: ['building'], polygon: { color: hex(0xa89c8c) } },
+  { sourceLayers: ['water'], polygon: { color: hex(0x5b91c4) } },
+  { sourceLayers: ['waterway'], polyline: { color: hex(0x5b91c4), width: 1 } },
+  { sourceLayers: ['transportation'], polyline: { color: hex(0x9a9184), width: 1 } },
+  { sourceLayers: ['boundary'], polyline: { color: hex(0x8f7a9c), width: 1 } },
+  { sourceLayers: ['building'], polygon: { color: hex(0x9c9184) } },
 ]
 
 // clampToGround の地物はグローブのドレープテクスチャにベイクされ、その解像度は
@@ -121,6 +132,19 @@ export default function NavaraView({ visible }: Props) {
         minZoom: tileJson.minzoom,
         maxZoom: tileJson.maxzoom,
       })
+      const landcover = view.addLayer({
+        type: 'vector',
+        source: vector,
+        sourceLayers: ['landcover'],
+        polygon: { clampToGround: true },
+      })
+      landcover.on('featureCreated', ({ evaluator }) => {
+        evaluator.evaluate(({ properties }) => {
+          const value = LANDCOVER_COLORS[String(properties?.['class'])]
+          return value === undefined ? { show: false } : { color: hex(value) }
+        })
+      })
+
       for (const style of VECTOR_LAYERS) {
         view.addLayer(buildLayer(style, vector, true))
       }

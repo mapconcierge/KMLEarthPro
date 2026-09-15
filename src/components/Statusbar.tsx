@@ -2,7 +2,7 @@ import { useEngineStore } from '../store/engineStore'
 import './Statusbar.css'
 
 const ENGINE_LABELS = {
-  '2d-maplibre': '2D: MapLibre GL JS',
+  '2d-maplibre': '2.75D: MapLibre GL JS',
   '3d-navara': '3D: Navara 0.1.1',
 }
 

@@ -45,6 +45,54 @@
   margin-bottom: 8px;
 }
 
+.engine-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.engine-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: #1e1e2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.engine-btn:hover {
+  background: #252535;
+  color: #e0e0e0;
+}
+
+.engine-btn.active {
+  background: rgba(126, 184, 247, 0.12);
+  border-color: #7eb8f7;
+  color: #7eb8f7;
+}
+
+.engine-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #2a2a3e;
+  color: #888;
+  letter-spacing: 0.05em;
+}
+
+.engine-btn.active .engine-badge {
+  background: #7eb8f7;
+  color: #0a0a1e;
+}
+
 .search-input {
   width: 100%;
   padding: 6px 10px;

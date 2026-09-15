@@ -13,9 +13,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@navaramap/three": "0.1.1",
+    "@navaramap/three-default-plugin": "0.1.1",
     "maplibre-gl": "^6.9.0",
+    "postprocessing": "^6.39.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "three": "^0.183.2",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

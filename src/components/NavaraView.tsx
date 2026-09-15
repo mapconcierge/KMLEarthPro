@@ -16,6 +16,8 @@ export default function NavaraView({ visible }: Props) {
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
+    // Navara の worker pool はページ内で一度しか初期化できないため、
+    // 2D/3D 切替では view を破棄せず初回のみ生成して使い回す
     if (!visible || !containerRef.current || viewRef.current) return
 
     if (!window.crossOriginIsolated) {
@@ -23,7 +25,6 @@ export default function NavaraView({ visible }: Props) {
       return
     }
 
-    let cancelled = false
     setInitState('loading')
 
     const init = async () => {
@@ -36,18 +37,12 @@ export default function NavaraView({ visible }: Props) {
       view.addPlugin(defaultPlugin)
 
       await view.init()
-
-      if (cancelled) {
-        containerRef.current?.querySelector('canvas')?.remove()
-        return
-      }
-
       viewRef.current = view
 
       defaultPlugin.addDefaultPhotorealScene()
 
-      // pitch: 0 = 真下（地球俯瞰）, heading: 0 = 北が上
-      view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: 0, heading: 0 })
+      // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
+      view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90, heading: 0 })
 
       const src = view.addSource({
         type: 'raster-tile',
@@ -56,22 +51,15 @@ export default function NavaraView({ visible }: Props) {
       })
       view.addLayer({ type: 'raster', source: src })
 
-      if (!cancelled) setInitState('ready')
+      setInitState('ready')
     }
 
     init().catch((err: unknown) => {
-      if (cancelled) return
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[Navara] init failed:', msg)
       setErrorMsg(msg)
       setInitState('error')
     })
-
-    return () => {
-      cancelled = true
-      containerRef.current?.querySelectorAll('canvas').forEach(c => c.remove())
-      viewRef.current = null
-    }
   }, [visible])
 
   return (
@@ -92,8 +80,8 @@ export default function NavaraView({ visible }: Props) {
         <div className="navara-overlay navara-error">
           <strong>Navara 初期化エラー</strong>
           <code>{errorMsg}</code>
-          <button className="navara-retry-btn" onClick={() => { setInitState('idle'); setErrorMsg('') }}>
-            再試行
+          <button className="navara-retry-btn" onClick={() => window.location.reload()}>
+            再読み込み
           </button>
         </div>
       )}

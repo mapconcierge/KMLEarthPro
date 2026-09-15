@@ -1,5 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { Map, NavigationControl, ScaleControl, GlobeControl, setWorkerUrl } from 'maplibre-gl'
+import {
+  Map,
+  NavigationControl,
+  ScaleControl,
+  GlobeControl,
+  TerrainControl,
+  setWorkerUrl,
+} from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './MapView.css'
 
@@ -7,6 +14,10 @@ import './MapView.css'
 // (dist/assets に実体が出力されない)、ワーカーが起動しないまま
 // スタイル読み込みが完了せず地図が空になる。public/ の実体を明示的に指す。
 setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`)
+
+// TileJSON から tiles/tileSize/encoding(terrarium)/attribution をまとめて取得する
+const MAPTERHORN_TILEJSON = 'https://tiles.mapterhorn.com/tilejson.json'
+const TERRAIN_SOURCE = 'mapterhorn'
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -20,15 +31,35 @@ export default function MapView() {
       style: 'https://tiles.openfreemap.org/styles/liberty',
       center: [0, 20],
       zoom: 2,
+      // 既定の 60° では地形を横から見渡せないため引き上げる
+      maxPitch: 85,
     })
     mapRef.current = map
 
     map.on('load', () => {
       map.setProjection({ type: 'globe' })
+
+      map.addSource(TERRAIN_SOURCE, { type: 'raster-dem', url: MAPTERHORN_TILEJSON })
+      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: 1 })
+
+      // terrain のメッシュは俯瞰（pitch 0）では起伏が読めないため、
+      // 同じ DEM から陰影を描いて真上からでも地形が分かるようにする。
+      // ラベルより下に差し込んで注記が隠れないようにする
+      const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id
+      map.addLayer(
+        {
+          id: 'mapterhorn-hillshade',
+          type: 'hillshade',
+          source: TERRAIN_SOURCE,
+          paint: { 'hillshade-exaggeration': 0.3 },
+        },
+        firstSymbol,
+      )
     })
 
-    map.addControl(new NavigationControl(), 'top-right')
+    map.addControl(new NavigationControl({ visualizePitch: true }), 'top-right')
     map.addControl(new GlobeControl(), 'top-right')
+    map.addControl(new TerrainControl({ source: TERRAIN_SOURCE, exaggeration: 1 }), 'top-right')
     map.addControl(new ScaleControl(), 'bottom-right')
 
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で

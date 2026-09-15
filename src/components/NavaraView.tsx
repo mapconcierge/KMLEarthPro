@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ThreeView, { Color } from '@navaramap/three'
+import ThreeView, { Color, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import './NavaraView.css'
 
@@ -16,19 +16,43 @@ const OFM_NATURAL_EARTH = 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}
 
 const hex = (value: number) => new Color().setHex(value)
 
+type VectorLayerStyle = {
+  sourceLayers: string[]
+  polygon?: { color: Color }
+  polyline?: { color: Color; width: number }
+}
+
 // OpenMapTiles スキーマのソースレイヤーを描画順に定義。
 // Navara の vector レイヤーは属性フィルタを持たないため、
 // ソースレイヤー単位で 1 スタイルを割り当てる。
-const VECTOR_LAYERS = [
-  { sourceLayers: ['landcover'], polygon: { color: hex(0xd7e3c8), clampToGround: true } },
-  { sourceLayers: ['landuse'], polygon: { color: hex(0xe8e2d8), clampToGround: true } },
-  { sourceLayers: ['park'], polygon: { color: hex(0xc6ddb0), clampToGround: true } },
-  { sourceLayers: ['water'], polygon: { color: hex(0x9fc4e8), clampToGround: true } },
-  { sourceLayers: ['waterway'], polyline: { color: hex(0x9fc4e8), width: 1.5, clampToGround: true } },
-  { sourceLayers: ['transportation'], polyline: { color: hex(0xb9b2a6), width: 1, clampToGround: true } },
-  { sourceLayers: ['boundary'], polyline: { color: hex(0xa08cb0), width: 1, clampToGround: true } },
-  { sourceLayers: ['building'], polygon: { color: hex(0xcfc6bd), clampToGround: true } },
+const VECTOR_LAYERS: VectorLayerStyle[] = [
+  { sourceLayers: ['landcover'], polygon: { color: hex(0xc8dcb4) } },
+  { sourceLayers: ['landuse'], polygon: { color: hex(0xe6ddd0) } },
+  { sourceLayers: ['park'], polygon: { color: hex(0xb2d492) } },
+  { sourceLayers: ['water'], polygon: { color: hex(0x7fb0dc) } },
+  { sourceLayers: ['waterway'], polyline: { color: hex(0x7fb0dc), width: 1 } },
+  { sourceLayers: ['transportation'], polyline: { color: hex(0x8a8175), width: 1 } },
+  { sourceLayers: ['boundary'], polyline: { color: hex(0x9a7fa8), width: 1 } },
+  { sourceLayers: ['building'], polygon: { color: hex(0xa89c8c) } },
 ]
+
+// clampToGround の地物はグローブのドレープテクスチャにベイクされ、その解像度は
+// ラスターソースの実データ深度に律速される。ベースの Natural Earth は maxZoom 6
+// のため、大縮尺ではベクター地物まで z6 相当に潰れてぼやける（overscaledMaxZoom
+// では解決しない）。
+//
+// clampToGround: false なら解像度非依存に描画されるが、小縮尺では地球全体の線が
+// 重なって球面と Z ファイティングを起こし、別ソースで重ねる構成は描画負荷が
+// 二重になる。大縮尺の解像度を上げるには深い標高/ラスターソースを与えて
+// グローブの分割自体を細かくする必要がある（overscaledMaxZoom では不可）。
+
+const buildLayer = (style: VectorLayerStyle, source: Source, clampToGround: boolean) => ({
+  type: 'vector' as const,
+  source,
+  sourceLayers: style.sourceLayers,
+  ...(style.polygon ? { polygon: { ...style.polygon, clampToGround } } : {}),
+  ...(style.polyline ? { polyline: { ...style.polyline, clampToGround } } : {}),
+})
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -80,8 +104,8 @@ export default function NavaraView({ visible }: Props) {
         minZoom: tileJson.minzoom,
         maxZoom: tileJson.maxzoom,
       })
-      for (const layer of VECTOR_LAYERS) {
-        view.addLayer({ type: 'vector', source: vector, ...layer })
+      for (const style of VECTOR_LAYERS) {
+        view.addLayer(buildLayer(style, vector, true))
       }
 
       // OSM 由来データのため ODbL に基づく帰属表示が必須

@@ -109,6 +109,11 @@ export default function NavaraView({ visible }: Props) {
       const base = view.addSource({ type: 'raster-tile', url: OFM_NATURAL_EARTH, maxZoom: 6 })
       view.addLayer({ type: 'raster', source: base })
 
+      // 同じ DEM から陰影を描く。terrain メッシュの起伏は俯瞰（pitch -90）では
+      // 読み取れないため、真上からでも地形が分かるようにする。
+      // ベクター地物より先に追加して注記や道路を隠さないようにする
+      view.addLayer({ type: 'raster', source: dem, hillshade: { exaggeration: 0.3 } })
+
       const tileJson = await fetch(OFM_TILEJSON).then((r) => r.json())
       const vector = view.addSource({
         type: 'vector-tile',

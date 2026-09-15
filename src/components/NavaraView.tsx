@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ThreeView, { Color, type Source } from '@navaramap/three'
+import ThreeView, { Color, TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import './NavaraView.css'
 
@@ -13,6 +13,11 @@ interface Props {
 // ハードコードせず TileJSON から実行時に解決する
 const OFM_TILEJSON = 'https://tiles.openfreemap.org/planet'
 const OFM_NATURAL_EARTH = 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png'
+
+// Mapterhorn のグローバル標高タイル（terrarium エンコーディング、tileSize 512、
+// z16 まで提供。配信形式は PNG ではなく WebP）
+const MAPTERHORN_DEM = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'
+const MAPTERHORN_MAX_ZOOM = 16
 
 const hex = (value: number) => new Color().setHex(value)
 
@@ -37,15 +42,10 @@ const VECTOR_LAYERS: VectorLayerStyle[] = [
 ]
 
 // clampToGround の地物はグローブのドレープテクスチャにベイクされ、その解像度は
-// ラスターソースの実データ深度に律速される。ベースの Natural Earth は maxZoom 6
-// のため、大縮尺ではベクター地物まで z6 相当に潰れてぼやける（overscaledMaxZoom
-// では解決しない）。
-//
-// clampToGround: false なら解像度非依存に描画されるが、小縮尺では地球全体の線が
-// 重なって球面と Z ファイティングを起こし、別ソースで重ねる構成は描画負荷が
-// 二重になる。大縮尺の解像度を上げるには深い標高/ラスターソースを与えて
-// グローブの分割自体を細かくする必要がある（overscaledMaxZoom では不可）。
-
+// グローブのタイル分割深度に律速される。分割深度は最も深いソースが決めるため、
+// Natural Earth ラスター（maxZoom 6）だけでは大縮尺で z6 相当に潰れる。
+// Mapterhorn の DEM（z16）を terrain として与えることで分割が深くなり解決する。
+// overscaledMaxZoom や maxSse では分割深度は変わらない。
 const buildLayer = (style: VectorLayerStyle, source: Source, clampToGround: boolean) => ({
   type: 'vector' as const,
   source,
@@ -92,6 +92,18 @@ export default function NavaraView({ visible }: Props) {
       // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
       view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90, heading: 0 })
 
+      // 標高タイルを地球表面として描画する。地形表現に加えて、グローブの
+      // タイル分割が DEM の深度（z16）まで細かくなるため、clampToGround の
+      // ベクター地物がベイクされる解像度も大縮尺まで確保される。
+      const dem = view.addSource({
+        type: 'raster-dem',
+        url: MAPTERHORN_DEM,
+        elevationDecoder: TERRARIUM_ELEVATION_DECODER(),
+        tileSize: 512,
+        maxZoom: MAPTERHORN_MAX_ZOOM,
+      })
+      view.addLayer({ type: 'terrain', source: dem })
+
       // 低ズームの地球儀外観は Natural Earth ラスター（zoom 0-6）が担当し、
       // 拡大時はベクタータイルのレイヤーが詳細を描く
       const base = view.addSource({ type: 'raster-tile', url: OFM_NATURAL_EARTH, maxZoom: 6 })
@@ -116,6 +128,7 @@ export default function NavaraView({ visible }: Props) {
           attribution: '© OpenStreetMap contributors',
           attributionUrl: 'https://www.openstreetmap.org/copyright',
         },
+        { attribution: '© Mapterhorn', attributionUrl: 'https://mapterhorn.com/attribution' },
       ])
 
       setInitState('ready')

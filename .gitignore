@@ -1,0 +1,27 @@
+# ビルド成果物
+dist/
+.vite/
+
+# 依存関係
+node_modules/
+
+# TypeScript キャッシュ
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# エディタ
+.vscode/
+.idea/
+
+# テスト
+coverage/
+playwright-report/
+test-results/
+
+# 環境変数（機密情報を含む場合）
+.env
+.env.local
+.env.*.local

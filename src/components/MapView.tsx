@@ -26,7 +26,13 @@ export default function MapView() {
     map.addControl(new GlobeControl(), 'top-right')
     map.addControl(new ScaleControl(), 'bottom-right')
 
+    // 2D/3D 切替の display:none や、レイアウト確定前の初期化で
+    // コンテナが 0x0 のまま固定されるのを防ぐ
+    const resizeObserver = new ResizeObserver(() => map.resize())
+    resizeObserver.observe(containerRef.current)
+
     return () => {
+      resizeObserver.disconnect()
       map.remove()
       mapRef.current = null
     }

@@ -247,6 +247,9 @@ importers:
       '@vitest/ui':
         specifier: ^5.0.0
         version: 5.0.0(vitest@5.0.0)
+      coi-serviceworker:
+        specifier: ^0.1.7
+        version: 0.1.7
       playwright:
         specifier: ^1.63.0
         version: 1.63.0
@@ -772,6 +775,9 @@ packages:
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
+
+  coi-serviceworker@0.1.7:
+    resolution: {integrity: sha512-bjSUqEngCPOkErY2vbyWsaIGCNRODYzlNycaREVw5s12/C8SM+RnRUUeX6pZbTtov6C52ZLY/+tvHK+BDxuUuA==}
 
   commander@7.2.0:
     resolution: {integrity: sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw==}
@@ -1784,6 +1790,8 @@ snapshots:
       ieee754: 1.2.1
 
   chai@6.2.2: {}
+
+  coi-serviceworker@0.1.7: {}
 
   commander@7.2.0: {}
 

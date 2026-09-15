@@ -3,7 +3,7 @@ import ThreeView from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import './NavaraView.css'
 
-type InitState = 'idle' | 'loading' | 'ready' | 'error'
+type InitState = 'idle' | 'loading' | 'ready' | 'error' | 'needs-reload'
 
 interface Props {
   visible: boolean
@@ -18,21 +18,23 @@ export default function NavaraView({ visible }: Props) {
   useEffect(() => {
     if (!visible || !containerRef.current || viewRef.current) return
 
+    if (!window.crossOriginIsolated) {
+      setInitState('needs-reload')
+      return
+    }
+
     let cancelled = false
     setInitState('loading')
 
     const init = async () => {
-      // 1. ThreeView を構築 — container に渡すと canvas が自動追加される
       const view = new ThreeView<DefaultDescriptions>({
         container: containerRef.current!,
         shadow: true,
       })
 
-      // 2. init() より前にプラグインを登録（後から追加不可）
       const defaultPlugin = new DefaultPlugin()
       view.addPlugin(defaultPlugin)
 
-      // 3. 非同期初期化（WASM + workers + pipeline）
       await view.init()
 
       if (cancelled) {
@@ -42,13 +44,11 @@ export default function NavaraView({ visible }: Props) {
 
       viewRef.current = view
 
-      // 4. フォトリアルシーン（大気・太陽・星）を追加
       defaultPlugin.addDefaultPhotorealScene()
 
-      // 5. 初期カメラ位置（経度 0, 緯度 20, 高度 8000km）
-      view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90 })
+      // pitch: 0 = 真下（地球俯瞰）, heading: 0 = 北が上
+      view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: 0, heading: 0 })
 
-      // 6. OpenFreeMap ラスタータイルを追加
       const src = view.addSource({
         type: 'raster-tile',
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -69,7 +69,6 @@ export default function NavaraView({ visible }: Props) {
 
     return () => {
       cancelled = true
-      // canvas を DOM から除去（ThreeView に公式 dispose なし）
       containerRef.current?.querySelectorAll('canvas').forEach(c => c.remove())
       viewRef.current = null
     }
@@ -83,10 +82,19 @@ export default function NavaraView({ visible }: Props) {
           <span>Navara 3D を初期化中…</span>
         </div>
       )}
+      {initState === 'needs-reload' && (
+        <div className="navara-overlay navara-error">
+          <strong>ページを再読み込みしています…</strong>
+          <span>セキュリティポリシーを適用中です</span>
+        </div>
+      )}
       {initState === 'error' && (
         <div className="navara-overlay navara-error">
           <strong>Navara 初期化エラー</strong>
           <code>{errorMsg}</code>
+          <button className="navara-retry-btn" onClick={() => { setInitState('idle'); setErrorMsg('') }}>
+            再試行
+          </button>
         </div>
       )}
     </div>

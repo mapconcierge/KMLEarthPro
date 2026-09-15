@@ -1,7 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { Map, NavigationControl, ScaleControl, GlobeControl } from 'maplibre-gl'
+import { Map, NavigationControl, ScaleControl, GlobeControl, setWorkerUrl } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './MapView.css'
+
+// MapLibre 6 が既定で組み立てるワーカー URL はバンドル後に解決できず
+// (dist/assets に実体が出力されない)、ワーカーが起動しないまま
+// スタイル読み込みが完了せず地図が空になる。public/ の実体を明示的に指す。
+setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`)
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)

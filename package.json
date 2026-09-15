@@ -4,13 +4,14 @@
   "description": "Google Earth Pro の代替 Digital Earth Browser — OGC KML 2.3 対応 OSS Web アプリ",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/copy-maplibre-worker.mjs && vite",
+    "build": "node scripts/copy-maplibre-worker.mjs && tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "copy:maplibre-worker": "node scripts/copy-maplibre-worker.mjs"
   },
   "dependencies": {
     "@navaramap/three": "0.1.1",

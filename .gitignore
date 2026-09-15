@@ -25,3 +25,7 @@ test-results/
 .env
 .env.local
 .env.*.local
+
+# MapLibre ワーカー（scripts/copy-maplibre-worker.mjs が生成）
+public/maplibre-gl-worker.mjs
+public/maplibre-gl-shared.mjs

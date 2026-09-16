@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KmlDataSource, Viewer } from 'cesium'
+import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -29,18 +29,25 @@ const PLATEAU_CREDIT =
   '建築物モデル: <a href="https://www.mlit.go.jp/plateau/">PLATEAU</a>（国土交通省, CC BY 4.0）'
 // scripts/fetch-plateau-index.mjs が生成する全国 448 自治体の索引
 const PLATEAU_INDEX_URL = `${import.meta.env.BASE_URL}plateau-buildings.json`
-// これより高いと建物は見えないので読み込まない
-const PLATEAU_MAX_HEIGHT = 60_000
+// これより高いと建物は見えないので読み込まない（PLATEAU・全世界共通）
+const BUILDINGS_MAX_HEIGHT = 60_000
 // 同時に載せる自治体数の上限。政令市が隣接する地域で際限なく増えるのを防ぐ
 const PLATEAU_MAX_TILESETS = 12
 
-// 建物は一律の明るいグレーで描く。索引はテクスチャを持たない配信物
-// (_no_texture 版と LOD1) だけを選んでいるので、この色がそのまま出る
-const PLATEAU_BUILDING_COLOR = "color('#d6d6d6')"
+// 建物は PLATEAU・全世界とも一律の明るいグレーで描く。PLATEAU の索引は
+// テクスチャを持たない配信物 (_no_texture 版と LOD1) だけを選んでいるので、
+// この色がそのまま出る
+const BUILDING_COLOR = "color('#d6d6d6')"
+
+// Re:Earth Buildings: Overture Maps 由来の全世界 3D 建物（単一の tileset.json）。
+// PLATEAU が無い地域を埋める
+const GLOBAL_BUILDINGS_URL = 'https://buildings.reearth.land/tileset.json'
+const GLOBAL_BUILDINGS_CREDIT =
+  '建物: <a href="https://buildings.reearth.land/">Re:Earth Buildings</a> | <a href="https://overturemaps.org/">Overture Maps</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
 // 3D Tiles の読み込みチューニング。建物は箱と屋根が主で細部が少ないため、
 // 既定より粗い SSE でも見た目の損失に対して初回描画が大きく速くなる
-const PLATEAU_TILESET_OPTIONS = {
+const BUILDINGS_TILESET_OPTIONS = {
   // 既定 16。大きいほど要求タイルが減る
   maximumScreenSpaceError: 24,
   // 中間 LOD を飛ばして必要な解像度に直接到達させる
@@ -78,19 +85,27 @@ async function addVectorLayer(viewer: Viewer) {
 }
 
 /**
- * カメラの視野に入った自治体の PLATEAU 建築物 3D Tiles を読み込み、
- * 視野から外れたものは破棄する。
+ * 建物の 3D Tiles を管理する。
  *
- * 全国 448 自治体ぶんの tileset.json をまとめて読むことはできないため、
- * 索引（名称と範囲だけの軽量な JSON）を先に引き、視野と交差するものだけを
+ * PLATEAU は全国 448 自治体ぶんの tileset.json をまとめて読むことができないため、
+ * 索引（名称と範囲だけの軽量な JSON）を先に引き、カメラ周辺と交差するものだけを
  * 載せる。索引自体も日本を見ていない利用者には読ませない。
+ *
+ * Re:Earth Buildings は全世界を 1 本の tileset.json で覆う。PLATEAU と重ねると
+ * 日本の都市で建物が二重になるため、読み込み済み PLATEAU の範囲を
+ * ClippingPolygonCollection で切り抜いて描画から外す。
  */
-function watchPlateau(viewer: Viewer) {
+function watchBuildings(viewer: Viewer) {
   let index: PlateauEntry[] | null = null
   let indexPending = false
   let creditShown = false
   const loaded = new Map<string, { tileset: unknown; entry: PlateauEntry }>()
   let updating = false
+  let globalTileset: Cesium3DTileset | null = null
+  let globalClipping: ClippingPolygonCollection | null = null
+  // 切り抜き範囲の再構築は PLATEAU の顔ぶれが変わったときだけ行う
+  let clipSignature = ''
+  let globalPending = false
 
   const intersects = (e: PlateauEntry, view: { west: number; south: number; east: number; north: number }) =>
     e.west <= view.east && e.east >= view.west && e.south <= view.north && e.north >= view.south
@@ -113,7 +128,7 @@ function watchPlateau(viewer: Viewer) {
         unloadAll()
         return
       }
-      if (camera.positionCartographic.height > PLATEAU_MAX_HEIGHT) {
+      if (camera.positionCartographic.height > BUILDINGS_MAX_HEIGHT) {
         unloadAll()
         return
       }
@@ -152,8 +167,8 @@ function watchPlateau(viewer: Viewer) {
       const wanted = index.filter((e) => intersects(e, loadArea) && !loaded.has(e.url))
       for (const entry of wanted.slice(0, PLATEAU_MAX_TILESETS - loaded.size)) {
         try {
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url, PLATEAU_TILESET_OPTIONS)
-          tileset.style = new Cesium.Cesium3DTileStyle({ color: PLATEAU_BUILDING_COLOR })
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url, BUILDINGS_TILESET_OPTIONS)
+          tileset.style = new Cesium.Cesium3DTileStyle({ color: BUILDING_COLOR })
           // 読み込み中に範囲から外れていたら捨てる
           if (!intersects(entry, keepArea)) continue
           viewer.scene.primitives.add(tileset)
@@ -171,9 +186,86 @@ function watchPlateau(viewer: Viewer) {
     }
   }
 
-  viewer.camera.changed.addEventListener(() => void update())
+  /**
+   * 読み込み済み PLATEAU の範囲を切り抜き、日本の都市で建物が二重に描かれるのを防ぐ。
+   *
+   * ClippingPolygonCollection は tileset に代入し直しても前の collection が破棄されず
+   * GPU リソースが残るため、1 つを作って中身だけ入れ替える。
+   */
+  const applyClipping = async () => {
+    if (!globalClipping) return
+    const signature = [...loaded.keys()].sort().join('|')
+    if (signature === clipSignature) return
+    clipSignature = signature
+
+    const Cesium = await import('cesium')
+    globalClipping.removeAll()
+    for (const { entry } of loaded.values()) {
+      globalClipping.add(
+        new Cesium.ClippingPolygon({
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            entry.west, entry.south,
+            entry.east, entry.south,
+            entry.east, entry.north,
+            entry.west, entry.north,
+          ]),
+        }),
+      )
+    }
+  }
+
+  /** 全世界の建物 3D Tiles を、建物が意味を持つ縮尺に入ったときだけ載せる */
+  const updateGlobal = async () => {
+    const Cesium = await import('cesium')
+    const wanted =
+      useLayerStore.getState().globalBuildings &&
+      viewer.camera.positionCartographic.height <= BUILDINGS_MAX_HEIGHT
+
+    if (!wanted) {
+      if (globalTileset) {
+        // primitives.remove() が tileset ごと clippingPolygons も破棄する
+        viewer.scene.primitives.remove(globalTileset)
+        globalTileset = null
+        globalClipping = null
+        clipSignature = ''
+      }
+      return
+    }
+
+    if (!globalTileset) {
+      if (globalPending) return
+      globalPending = true
+      try {
+        const clipping = new Cesium.ClippingPolygonCollection()
+        const tileset = await Cesium.Cesium3DTileset.fromUrl(GLOBAL_BUILDINGS_URL, {
+          ...BUILDINGS_TILESET_OPTIONS,
+          // inverse 既定 false = ポリゴン内側を描画から外す
+          clippingPolygons: clipping,
+        })
+        tileset.style = new Cesium.Cesium3DTileStyle({ color: BUILDING_COLOR })
+        viewer.scene.primitives.add(tileset)
+        viewer.creditDisplay.addStaticCredit(new Cesium.Credit(GLOBAL_BUILDINGS_CREDIT, true))
+        globalTileset = tileset
+        globalClipping = clipping
+        clipSignature = ''
+      } catch (err) {
+        console.error('[Re:Earth Buildings] の読み込みに失敗:', err)
+        return
+      } finally {
+        globalPending = false
+      }
+    }
+    await applyClipping()
+  }
+
+  const updateAll = async () => {
+    await update()
+    await updateGlobal()
+  }
+
+  viewer.camera.changed.addEventListener(() => void updateAll())
   // チェックボックスの切り替えでも即座に反映する
-  useLayerStore.subscribe(() => void update())
+  useLayerStore.subscribe(() => void updateAll())
 }
 
 export default function CesiumView({ visible }: Props) {
@@ -234,7 +326,7 @@ export default function CesiumView({ visible }: Props) {
       // layer.json の attribution は常時表示されないため明示的に出す
       viewer.creditDisplay.addStaticCredit(new Cesium.Credit(TERRAIN_CREDIT, true))
       await addVectorLayer(viewer)
-      watchPlateau(viewer)
+      watchBuildings(viewer)
 
       useKmlStore.getState().setFlyTo((id) => {
         const source = sourcesRef.current.get(id)

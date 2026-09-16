@@ -15,6 +15,8 @@ export default function Sidebar() {
   const flyToKml = useKmlStore((s) => s.flyTo)
   const plateauVisible = useLayerStore((s) => s.plateau)
   const setPlateauVisible = useLayerStore((s) => s.setPlateau)
+  const globalBuildingsVisible = useLayerStore((s) => s.globalBuildings)
+  const setGlobalBuildingsVisible = useLayerStore((s) => s.setGlobalBuildings)
 
   return (
     <aside className="sidebar">
@@ -84,6 +86,17 @@ export default function Sidebar() {
                 PLATEAU 建築物
               </label>
               <span className="layer-note">CesiumJS のみ</span>
+            </li>
+            <li>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={globalBuildingsVisible}
+                  onChange={(e) => setGlobalBuildingsVisible(e.target.checked)}
+                />{' '}
+                建物（全世界）
+              </label>
+              <span className="layer-note">CesiumJS のみ・PLATEAU 範囲は除外</span>
             </li>
           </ul>
         </section>

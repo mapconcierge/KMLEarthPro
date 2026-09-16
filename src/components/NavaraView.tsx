@@ -32,6 +32,8 @@ const TERRAIN_MAX_ZOOM = 14
 const BUILDINGS_TILESET = 'https://buildings.reearth.land/tileset.json'
 const BUILDINGS_ADD_ZOOM = 14
 const BUILDINGS_REMOVE_ZOOM = 12
+// 夜側で建物が黒く潰れないように足す環境光の強さ
+const BUILDING_AMBIENT_INTENSITY = 0.6
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -67,6 +69,13 @@ export default function NavaraView({ visible }: Props) {
       viewRef.current = view
 
       defaultPlugin.addDefaultPhotorealScene()
+
+      // 建物 3D Tiles はシーンの光で陰影がつくが、太陽は実時刻に追従するため
+      // 日没後は光が当たらず真っ黒なシルエットになる（ラスターの基図は光を
+      // 受けないので明るいまま残り、建物だけが黒く沈む）。
+      // 一定の環境光を足して、時刻に依らず建物がグレーで読めるようにする。
+      // 昼は太陽光が主になるので陰影はそのまま残る
+      view.addLight({ ambient: { intensity: BUILDING_AMBIENT_INTENSITY } })
 
       // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
       view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90, heading: 0 })

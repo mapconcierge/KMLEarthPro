@@ -39,6 +39,17 @@ const PLATEAU_MAX_TILESETS = 12
 // この色がそのまま出る
 const BUILDING_COLOR = "color('#d6d6d6')"
 
+// 建物に当てる平行光の強さ。シーンの太陽光 (intensity 5) は地形の起伏を
+// 読ませるために強めてあり、そのまま建物に当てると日中に白飛びする
+const BUILDING_LIGHT = 2
+// 太陽の当たらない面に乗せる一定の環境光。
+//
+// Cesium は既定で DynamicEnvironmentMapManager が大気から環境光を求めるが、
+// 日没後はその環境光がほぼ 0 になり、建物が真っ黒なシルエットになる
+// （太陽の位置は時計に連動するので、日本の夕方以降に開くと必ずこうなる）。
+// 大気由来の環境光を切り、方角と時刻に依らない一定値を与える
+const BUILDING_AMBIENT = 0.35
+
 // Re:Earth Buildings: Overture Maps 由来の全世界 3D 建物（単一の tileset.json）。
 // PLATEAU が無い地域を埋める
 const GLOBAL_BUILDINGS_URL = 'https://buildings.reearth.land/tileset.json'
@@ -82,6 +93,25 @@ async function addVectorLayer(viewer: Viewer) {
     credit: OFM_CREDIT,
   })
   viewer.imageryLayers.add(new Cesium.ImageryLayer(provider, {}))
+}
+
+/**
+ * 建物 3D Tiles の見えかたを揃える。PLATEAU と全世界の建物で共通。
+ *
+ * 一律の明るいグレーにしたうえで、平行光を弱め一定の環境光を足す。
+ * こうしないと時刻によって白飛びしたり真っ黒なシルエットになったりする。
+ */
+async function styleBuildings(tileset: Cesium3DTileset) {
+  const Cesium = await import('cesium')
+  tileset.style = new Cesium.Cesium3DTileStyle({ color: BUILDING_COLOR })
+  tileset.lightColor = new Cesium.Cartesian3(BUILDING_LIGHT, BUILDING_LIGHT, BUILDING_LIGHT)
+  tileset.environmentMapManager.enabled = false
+  // 3 次の球面調和係数。0 次だけを与えると全方向に一定の環境光になる
+  const zero = () => new Cesium.Cartesian3(0, 0, 0)
+  tileset.imageBasedLighting.sphericalHarmonicCoefficients = [
+    new Cesium.Cartesian3(BUILDING_AMBIENT, BUILDING_AMBIENT, BUILDING_AMBIENT),
+    zero(), zero(), zero(), zero(), zero(), zero(), zero(), zero(),
+  ]
 }
 
 /**
@@ -168,7 +198,7 @@ function watchBuildings(viewer: Viewer) {
       for (const entry of wanted.slice(0, PLATEAU_MAX_TILESETS - loaded.size)) {
         try {
           const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url, BUILDINGS_TILESET_OPTIONS)
-          tileset.style = new Cesium.Cesium3DTileStyle({ color: BUILDING_COLOR })
+          await styleBuildings(tileset)
           // 読み込み中に範囲から外れていたら捨てる
           if (!intersects(entry, keepArea)) continue
           viewer.scene.primitives.add(tileset)
@@ -242,7 +272,7 @@ function watchBuildings(viewer: Viewer) {
           // inverse 既定 false = ポリゴン内側を描画から外す
           clippingPolygons: clipping,
         })
-        tileset.style = new Cesium.Cesium3DTileStyle({ color: BUILDING_COLOR })
+        await styleBuildings(tileset)
         viewer.scene.primitives.add(tileset)
         viewer.creditDisplay.addStaticCredit(new Cesium.Credit(GLOBAL_BUILDINGS_CREDIT, true))
         globalTileset = tileset

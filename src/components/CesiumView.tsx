@@ -17,6 +17,13 @@ const OFM_NATURAL_EARTH = 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}
 const OFM_TILEJSON = 'https://tiles.openfreemap.org/planet'
 const OFM_CREDIT =
   '<a href="https://openfreemap.org/">OpenFreeMap</a> | <a href="https://openmaptiles.org/">OpenMapTiles</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// Re:Earth Terrain の CesiumJS 向けエンドポイント（quantized-mesh）。
+// Mapterhorn を EGM2008 ジオイドで補正したグローバル標高で z0-14。
+// octvertexnormals 拡張を持つので、法線を要求すれば地形の陰影も得られる
+const TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid'
+const TERRAIN_CREDIT =
+  '<a href="https://terrain.reearth.land/">Re:Earth Terrain</a> | <a href="https://mapterhorn.com/">Mapterhorn</a> | <a href="https://earth-info.nga.mil/">EGM2008 (NGA)</a>'
+
 const KML_PATTERN = /\.(kml|kmz)$/i
 
 /**
@@ -74,8 +81,19 @@ export default function CesiumView({ visible }: Props) {
         fullscreenButton: false,
         timeline: true,
         animation: true,
+        terrain: new Cesium.Terrain(
+          Cesium.CesiumTerrainProvider.fromUrl(TERRAIN_URL, {
+            // 法線がないと地形が平坦に陰影づけされ起伏が読めない
+            requestVertexNormals: true,
+          }),
+        ),
       })
       viewerRef.current = viewer
+
+      // 地形を有効にすると地表の裏側の地物が透けて見えるため、深度テストを有効にする
+      viewer.scene.globe.depthTestAgainstTerrain = true
+      // layer.json の attribution は常時表示されないため明示的に出す
+      viewer.creditDisplay.addStaticCredit(new Cesium.Credit(TERRAIN_CREDIT, true))
       await addVectorLayer(viewer)
 
       useKmlStore.getState().setFlyTo((id) => {

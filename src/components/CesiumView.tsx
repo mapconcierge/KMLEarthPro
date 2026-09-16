@@ -3,6 +3,7 @@ import type { KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
 import { MvtImageryProvider } from './MvtImageryProvider'
+import { PLATEAU_BUILDINGS } from './plateauBuildings'
 import './CesiumView.css'
 
 type InitState = 'idle' | 'loading' | 'ready' | 'error'
@@ -24,6 +25,13 @@ const TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid'
 const TERRAIN_CREDIT =
   '<a href="https://terrain.reearth.land/">Re:Earth Terrain</a> | <a href="https://mapterhorn.com/">Mapterhorn</a> | <a href="https://earth-info.nga.mil/">EGM2008 (NGA)</a>'
 
+const PLATEAU_CREDIT =
+  '建築物モデル: <a href="https://www.mlit.go.jp/plateau/">PLATEAU</a>（国土交通省, CC BY 4.0）'
+// 23 区全体を覆う範囲。ここに入ったときだけ tileset を読み込む
+const TOKYO_BOUNDS = { west: 139.5, south: 35.5, east: 139.95, north: 35.85 }
+// これより高いと建物は見えないので読み込まない
+const PLATEAU_MAX_HEIGHT = 60_000
+
 const KML_PATTERN = /\.(kml|kmz)$/i
 
 /**
@@ -39,6 +47,47 @@ async function addVectorLayer(viewer: Viewer) {
     credit: OFM_CREDIT,
   })
   viewer.imageryLayers.add(new Cesium.ImageryLayer(provider, {}))
+}
+
+/**
+ * カメラが東京 23 区の上空に入ったら PLATEAU の建築物 3D Tiles を読み込む。
+ *
+ * 23 区分で tileset.json が 23 本あるため、日本を見ていない利用者に無駄な
+ * リクエストをさせないよう、範囲と高度で絞ってから一度だけ読み込む。
+ * 読み込み後は Cesium の 3D Tiles が視錐台と LOD で取捨選択する。
+ */
+function watchPlateau(viewer: Viewer) {
+  let loaded = false
+
+  const load = async () => {
+    const Cesium = await import('cesium')
+    const results = await Promise.allSettled(
+      PLATEAU_BUILDINGS.map(([, url]) => Cesium.Cesium3DTileset.fromUrl(url)),
+    )
+    for (const [index, result] of results.entries()) {
+      if (result.status === 'fulfilled') {
+        viewer.scene.primitives.add(result.value)
+      } else {
+        console.error(`[PLATEAU] ${PLATEAU_BUILDINGS[index][0]} の読み込みに失敗:`, result.reason)
+      }
+    }
+    viewer.creditDisplay.addStaticCredit(new Cesium.Credit(PLATEAU_CREDIT, true))
+  }
+
+  viewer.camera.changed.addEventListener(() => {
+    if (loaded) return
+    const p = viewer.camera.positionCartographic
+    const lng = (p.longitude * 180) / Math.PI
+    const lat = (p.latitude * 180) / Math.PI
+    const inTokyo =
+      lng >= TOKYO_BOUNDS.west &&
+      lng <= TOKYO_BOUNDS.east &&
+      lat >= TOKYO_BOUNDS.south &&
+      lat <= TOKYO_BOUNDS.north
+    if (!inTokyo || p.height > PLATEAU_MAX_HEIGHT) return
+    loaded = true
+    void load()
+  })
 }
 
 export default function CesiumView({ visible }: Props) {
@@ -92,9 +141,14 @@ export default function CesiumView({ visible }: Props) {
 
       // 地形を有効にすると地表の裏側の地物が透けて見えるため、深度テストを有効にする
       viewer.scene.globe.depthTestAgainstTerrain = true
+      // 法線付きの地形に太陽光を当てて起伏を陰影で表現する。
+      // 既定の SunLight (intensity 2) では日中でも地図が暗くなりすぎるため明るくする
+      viewer.scene.globe.enableLighting = true
+      viewer.scene.light = new Cesium.SunLight({ intensity: 5 })
       // layer.json の attribution は常時表示されないため明示的に出す
       viewer.creditDisplay.addStaticCredit(new Cesium.Credit(TERRAIN_CREDIT, true))
       await addVectorLayer(viewer)
+      watchPlateau(viewer)
 
       useKmlStore.getState().setFlyTo((id) => {
         const source = sourcesRef.current.get(id)

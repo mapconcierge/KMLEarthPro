@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ThreeView, { TERRARIUM_ELEVATION_DECODER } from '@navaramap/three'
+import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import './NavaraView.css'
 
@@ -21,6 +21,14 @@ const PAPERS_MAX_ZOOM = 22
 const TERRAIN_TILES = 'https://terrain.reearth.land/mapterhorn-egm08/terrarium/ellipsoid/{z}/{x}/{y}.webp'
 const TERRAIN_MAX_ZOOM = 14
 
+// Re:Earth Buildings: Overture Maps 由来のグローバル 3D 建物（3D Tiles）。
+// 常時載せるとタイル読み込みを占有し、基図と地形の取得が止まる
+// （実測: 建物ありで Papers は z2 止まり、建物なしで z15 まで到達）。
+// 建物が意味を持つ縮尺に入ったときだけ載せ、離れたら外す。
+// 閾値に幅を持たせて境界での付け外しの往復を防ぐ。
+const BUILDINGS_TILESET = 'https://buildings.reearth.land/tileset.json'
+const BUILDINGS_ADD_ZOOM = 14
+const BUILDINGS_REMOVE_ZOOM = 12
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -81,15 +89,30 @@ export default function NavaraView({ visible }: Props) {
       })
       view.addLayer({ type: 'raster', source: basemap })
 
-      // NOTE: Re:Earth Buildings (3D Tiles) は追加すると基図と地形のタイル取得が
-      // 止まる。実測で Papers は建物ありだと z2、建物なしだと z15 まで到達した。
-      // グローバルなタイルセットが Navara の読み込みを占有するため、既定では載せない。
+      let buildings: { source: Source; layerId: string } | null = null
+      view.on('postUpdate', () => {
+        const zoom = view.camera.zoom
+        if (zoom === undefined) return
+
+        if (!buildings && zoom >= BUILDINGS_ADD_ZOOM) {
+          const source = view.addSource({ type: '3d-tiles', url: BUILDINGS_TILESET })
+          const layer = view.addLayer({ type: '3d-tiles', source })
+          buildings = { source, layerId: layer.id }
+        } else if (buildings && zoom < BUILDINGS_REMOVE_ZOOM) {
+          // レイヤーが参照している間はソースを消せないので順序を守る
+          view.deleteLayerById(buildings.layerId)
+          buildings.source.delete()
+          buildings = null
+        }
+      })
 
       // 各 TileJSON / tileset.json が要求する帰属表示
       view.attribution?.add([
         { attribution: 'Re:Earth Papers', attributionUrl: 'https://papers.reearth.land/attribution' },
         { attribution: 'Re:Earth Terrain', attributionUrl: 'https://terrain.reearth.land/' },
+        { attribution: 'Re:Earth Buildings', attributionUrl: 'https://buildings.reearth.land/' },
         { attribution: 'Mapterhorn', attributionUrl: 'https://mapterhorn.com/' },
+        { attribution: 'Overture Maps', attributionUrl: 'https://overturemaps.org/' },
         {
           attribution: '© OpenStreetMap contributors',
           attributionUrl: 'https://www.openstreetmap.org/copyright',

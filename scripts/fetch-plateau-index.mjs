@@ -15,24 +15,41 @@ const CONCURRENCY = 16
 
 const toDeg = (rad) => Number(((rad * 180) / Math.PI).toFixed(5))
 
-/** 自治体ごとに (year, lod) が最大のものを残す */
+/**
+ * テクスチャを持たないものを優先しつつ、自治体ごとに (year, lod) が最大のものを残す。
+ *
+ * 建物は一律のグレーで描くためテクスチャを使わない。PLATEAU は _no_texture 版を
+ * 配信しており、LOD1 はもともと箱のみでテクスチャを持たない。テクスチャを
+ * 読まないぶん転送量と描画負荷が下がる（全 448 自治体に無テクスチャ版がある）。
+ */
+function isUntextured(d) {
+  return d.url.includes('_no_texture') || String(d.lod) === '1'
+}
+
 function pickLatest(datasets) {
-  const best = new Map()
+  const byMunicipality = new Map()
   for (const d of datasets) {
     if (d.type !== '建築物モデル' || d.format !== '3D Tiles' || !d.url) continue
     const key = `${d.city_code ?? d.pref_code}/${d.city ?? ''}/${d.ward ?? ''}`
-    const rank = [d.year ?? 0, Number(d.lod ?? 0)]
-    const current = best.get(key)
-    if (!current) {
-      best.set(key, d)
-      continue
-    }
-    const currentRank = [current.year ?? 0, Number(current.lod ?? 0)]
-    if (rank[0] > currentRank[0] || (rank[0] === currentRank[0] && rank[1] > currentRank[1])) {
-      best.set(key, d)
-    }
+    const list = byMunicipality.get(key)
+    if (list) list.push(d)
+    else byMunicipality.set(key, [d])
   }
-  return [...best.values()]
+
+  const best = []
+  for (const list of byMunicipality.values()) {
+    const untextured = list.filter(isUntextured)
+    const pool = untextured.length > 0 ? untextured : list
+    best.push(
+      pool.reduce((a, b) =>
+        (b.year ?? 0) > (a.year ?? 0) ||
+        ((b.year ?? 0) === (a.year ?? 0) && Number(b.lod ?? 0) > Number(a.lod ?? 0))
+          ? b
+          : a,
+      ),
+    )
+  }
+  return best
 }
 
 const REGION_RE = /"region"\s*:\s*\[([^\]]+)\]/

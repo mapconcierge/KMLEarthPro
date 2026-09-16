@@ -33,6 +33,10 @@ const PLATEAU_MAX_HEIGHT = 60_000
 // 同時に載せる自治体数の上限。政令市が隣接する地域で際限なく増えるのを防ぐ
 const PLATEAU_MAX_TILESETS = 12
 
+// 建物は一律の明るいグレーで描く。索引はテクスチャを持たない配信物
+// (_no_texture 版と LOD1) だけを選んでいるので、この色がそのまま出る
+const PLATEAU_BUILDING_COLOR = "color('#d6d6d6')"
+
 // 3D Tiles の読み込みチューニング。建物は箱と屋根が主で細部が少ないため、
 // 既定より粗い SSE でも見た目の損失に対して初回描画が大きく速くなる
 const PLATEAU_TILESET_OPTIONS = {
@@ -144,6 +148,7 @@ function watchPlateau(viewer: Viewer) {
       for (const entry of wanted.slice(0, PLATEAU_MAX_TILESETS - loaded.size)) {
         try {
           const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url, PLATEAU_TILESET_OPTIONS)
+          tileset.style = new Cesium.Cesium3DTileStyle({ color: PLATEAU_BUILDING_COLOR })
           // 読み込み中に範囲から外れていたら捨てる
           if (!intersects(entry, keepArea)) continue
           viewer.scene.primitives.add(tileset)

@@ -26,6 +26,7 @@ test-results/
 .env.local
 .env.*.local
 
-# MapLibre ワーカー（scripts/copy-maplibre-worker.mjs が生成）
+# 依存の静的アセット（scripts/copy-static-deps.mjs が生成）
 public/maplibre-gl-worker.mjs
 public/maplibre-gl-shared.mjs
+public/cesium/

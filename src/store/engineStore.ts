@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type Engine = '2d-maplibre' | '3d-navara'
+export type Engine = '2d-maplibre' | '3d-navara' | '3d-cesium'
 
 interface EngineState {
   engine: Engine

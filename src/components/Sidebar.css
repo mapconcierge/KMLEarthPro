@@ -143,3 +143,54 @@
   border-radius: 10px;
   display: inline-block;
 }
+
+.kml-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kml-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #d0d0d0;
+  padding: 3px 0;
+}
+
+.kml-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.kml-name:hover:not(:disabled) {
+  color: #7eb8f7;
+}
+
+.kml-name:disabled {
+  cursor: default;
+}
+
+.kml-state {
+  flex: none;
+  font-size: 0.68rem;
+  color: #888;
+}
+
+.kml-error .kml-name,
+.kml-error .kml-state {
+  color: #f87171;
+}

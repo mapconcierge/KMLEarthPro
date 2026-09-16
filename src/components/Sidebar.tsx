@@ -1,13 +1,17 @@
 import { useEngineStore, type Engine } from '../store/engineStore'
+import { useKmlStore } from '../store/kmlStore'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
   { id: '2d-maplibre', label: 'MapLibre GL JS', badge: '2.75D' },
   { id: '3d-navara', label: 'Navara 3D', badge: '3D' },
+  { id: '3d-cesium', label: 'CesiumJS', badge: '3D' },
 ]
 
 export default function Sidebar() {
   const { engine, setEngine } = useEngineStore()
+  const kmlEntries = useKmlStore((s) => s.entries)
+  const flyToKml = useKmlStore((s) => s.flyTo)
 
   return (
     <aside className="sidebar">
@@ -37,7 +41,27 @@ export default function Sidebar() {
         </section>
         <section className="nav-section">
           <h2>場所</h2>
-          <p className="placeholder-text">KML/KMZ ファイルをドロップして開く</p>
+          {kmlEntries.length === 0 ? (
+            <p className="placeholder-text">
+              CesiumJS に KML/KMZ ファイルをドロップして開く
+            </p>
+          ) : (
+            <ul className="kml-list">
+              {kmlEntries.map((e) => (
+                <li key={e.id} className={`kml-item kml-${e.status}`} title={e.message ?? e.name}>
+                  <button
+                    className="kml-name"
+                    disabled={e.status !== 'loaded' || !flyToKml}
+                    onClick={() => flyToKml?.(e.id)}
+                  >
+                    {e.name}
+                  </button>
+                  {e.status === 'loading' && <span className="kml-state">読込中</span>}
+                  {e.status === 'error' && <span className="kml-state">エラー</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
         <section className="nav-section">
           <h2>レイヤー</h2>

@@ -4,6 +4,7 @@ import './Statusbar.css'
 const ENGINE_LABELS = {
   '2d-maplibre': '2.75D: MapLibre GL JS',
   '3d-navara': '3D: Navara 0.1.1',
+  '3d-cesium': '3D: CesiumJS',
 }
 
 export default function Statusbar() {

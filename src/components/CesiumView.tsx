@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
+import { MvtImageryProvider } from './MvtImageryProvider'
 import './CesiumView.css'
 
 type InitState = 'idle' | 'loading' | 'ready' | 'error'
@@ -11,7 +12,27 @@ interface Props {
 }
 
 const OFM_NATURAL_EARTH = 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png'
+// planet のタイル URL は配信バージョンがパスに含まれ随時更新されるため、
+// ハードコードせず TileJSON から実行時に解決する
+const OFM_TILEJSON = 'https://tiles.openfreemap.org/planet'
+const OFM_CREDIT =
+  '<a href="https://openfreemap.org/">OpenFreeMap</a> | <a href="https://openmaptiles.org/">OpenMapTiles</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 const KML_PATTERN = /\.(kml|kmz)$/i
+
+/**
+ * OpenFreeMap のベクタータイルを Cesium のイメージャリレイヤーとして重ねる。
+ * planet のタイル URL は配信バージョンがパスに含まれるため TileJSON から解決する。
+ */
+async function addVectorLayer(viewer: Viewer) {
+  const Cesium = await import('cesium')
+  const tileJson = await fetch(OFM_TILEJSON).then((r) => r.json())
+  const provider = new MvtImageryProvider({
+    urlTemplate: tileJson.tiles[0],
+    maximumLevel: tileJson.maxzoom,
+    credit: OFM_CREDIT,
+  })
+  viewer.imageryLayers.add(new Cesium.ImageryLayer(provider, {}))
+}
 
 export default function CesiumView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -42,10 +63,7 @@ export default function CesiumView({ visible }: Props) {
           new Cesium.UrlTemplateImageryProvider({
             url: OFM_NATURAL_EARTH,
             maximumLevel: 6,
-            credit: new Cesium.Credit(
-              '<a href="https://openfreemap.org/">OpenFreeMap</a> | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-              true,
-            ),
+            credit: new Cesium.Credit(OFM_CREDIT, true),
           }),
         ),
         baseLayerPicker: false,
@@ -58,6 +76,8 @@ export default function CesiumView({ visible }: Props) {
         animation: true,
       })
       viewerRef.current = viewer
+      await addVectorLayer(viewer)
+
       useKmlStore.getState().setFlyTo((id) => {
         const source = sourcesRef.current.get(id)
         if (source) void viewer.flyTo(source)

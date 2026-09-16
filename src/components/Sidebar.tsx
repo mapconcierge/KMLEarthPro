@@ -1,6 +1,13 @@
+import { useEffect, useState } from 'react'
 import { useEngineStore, type Engine } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
+import {
+  FAVORITE_PLACES,
+  TOUR_INTERVAL_MS,
+  usePlaceStore,
+  type Place,
+} from '../store/placeStore'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
@@ -17,6 +24,38 @@ export default function Sidebar() {
   const setPlateauVisible = useLayerStore((s) => s.setPlateau)
   const globalBuildingsVisible = useLayerStore((s) => s.globalBuildings)
   const setGlobalBuildingsVisible = useLayerStore((s) => s.setGlobalBuildings)
+  const fliers = usePlaceStore((s) => s.fliers)
+  const touring = usePlaceStore((s) => s.touring)
+  const currentPlaceId = usePlaceStore((s) => s.currentId)
+  const setTouring = usePlaceStore((s) => s.setTouring)
+  const [favoritesOpen, setFavoritesOpen] = useState(true)
+
+  // 現在のエンジンがカメラ移動関数を登録していなければ飛べない
+  // （Navara / CesiumJS は選択されるまで初期化されない）
+  const canFly = fliers[engine] !== undefined
+
+  const flyToPlace = (place: Place) => {
+    usePlaceStore.getState().setCurrentId(place.id)
+    usePlaceStore.getState().fliers[engine]?.(place)
+  }
+
+  // 巡回。エンジンを切り替えても続くよう、毎回その時点のエンジンから引く
+  useEffect(() => {
+    if (!touring) return
+
+    let index = 0
+    const go = () => {
+      const place = FAVORITE_PLACES[index % FAVORITE_PLACES.length]
+      index += 1
+      const { setCurrentId, fliers: current } = usePlaceStore.getState()
+      setCurrentId(place.id)
+      current[useEngineStore.getState().engine]?.(place)
+    }
+
+    go()
+    const timer = setInterval(go, TOUR_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [touring])
 
   return (
     <aside className="sidebar">
@@ -46,6 +85,43 @@ export default function Sidebar() {
         </section>
         <section className="nav-section">
           <h2>場所</h2>
+          <div className="folder">
+            <button
+              className="folder-header"
+              onClick={() => setFavoritesOpen((open) => !open)}
+              aria-expanded={favoritesOpen}
+            >
+              <span className="folder-caret">{favoritesOpen ? '▾' : '▸'}</span>
+              お気に入り
+            </button>
+            <button
+              className={`tour-btn ${touring ? 'active' : ''}`}
+              onClick={() => setTouring(!touring)}
+              disabled={!canFly && !touring}
+              title={
+                canFly
+                  ? `${TOUR_INTERVAL_MS / 1000} 秒ごとに次の場所へ移動します`
+                  : 'このエンジンはまだ初期化されていません'
+              }
+            >
+              {touring ? '■ 停止' : '▶ 巡回'}
+            </button>
+          </div>
+          {favoritesOpen && (
+            <ul className="place-list">
+              {FAVORITE_PLACES.map((place) => (
+                <li key={place.id}>
+                  <button
+                    className={`place-name ${currentPlaceId === place.id ? 'active' : ''}`}
+                    onClick={() => flyToPlace(place)}
+                    disabled={!canFly}
+                  >
+                    {place.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {kmlEntries.length === 0 ? (
             <p className="placeholder-text">
               CesiumJS に KML/KMZ ファイルをドロップして開く

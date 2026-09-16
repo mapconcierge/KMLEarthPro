@@ -8,6 +8,7 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './MapView.css'
 
 // MapLibre 6 が既定で組み立てるワーカー URL はバンドル後に解決できず
@@ -18,6 +19,11 @@ setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`)
 // TileJSON から tiles/tileSize/encoding(terrarium)/attribution をまとめて取得する
 const MAPTERHORN_TILEJSON = 'https://tiles.mapterhorn.com/tilejson.json'
 const TERRAIN_SOURCE = 'mapterhorn'
+
+// 「場所」から飛んだときの見えかた。3D エンジンの高度 1,500m・伏角 35° に
+// おおよそ合わせる（MapLibre の pitch は真下が 0 なので 90 から引く）
+const PLACE_ZOOM = 15
+const PLACE_PITCH = 55
 
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -62,6 +68,16 @@ export default function MapView() {
     map.addControl(new TerrainControl({ source: TERRAIN_SOURCE, exaggeration: 1 }), 'top-right')
     map.addControl(new ScaleControl(), 'bottom-right')
 
+    usePlaceStore.getState().registerFlier('2d-maplibre', (place) => {
+      map.flyTo({
+        center: [place.lng, place.lat],
+        zoom: PLACE_ZOOM,
+        pitch: PLACE_PITCH,
+        bearing: 0,
+        duration: FLY_DURATION_MS,
+      })
+    })
+
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で
     // コンテナが 0x0 のまま固定されるのを防ぐ
     const resizeObserver = new ResizeObserver(() => map.resize())
@@ -69,6 +85,7 @@ export default function MapView() {
 
     return () => {
       resizeObserver.disconnect()
+      usePlaceStore.getState().registerFlier('2d-maplibre', null)
       map.remove()
       mapRef.current = null
     }

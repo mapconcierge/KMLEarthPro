@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
+import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './NavaraView.css'
 
 type InitState = 'idle' | 'loading' | 'ready' | 'error' | 'needs-reload'
@@ -34,6 +35,9 @@ const BUILDINGS_ADD_ZOOM = 14
 const BUILDINGS_REMOVE_ZOOM = 12
 // 夜側で建物が黒く潰れないように足す環境光の強さ
 const BUILDING_AMBIENT_INTENSITY = 0.6
+
+// 「場所」から飛んだときの伏角。pitch は nose up positive なので負で見下ろす
+const PLACE_PITCH = -35
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -130,6 +134,14 @@ export default function NavaraView({ visible }: Props) {
           attributionUrl: 'https://www.openstreetmap.org/copyright',
         },
       ])
+
+      usePlaceStore.getState().registerFlier('3d-navara', (place) => {
+        // 割り込まれると false で解決する。巡回では想定内なので結果は見ない
+        void view.flyTo(
+          { lng: place.lng, lat: place.lat, height: place.height, pitch: PLACE_PITCH, heading: 0 },
+          { duration: FLY_DURATION_MS },
+        )
+      })
 
       setInitState('ready')
     }

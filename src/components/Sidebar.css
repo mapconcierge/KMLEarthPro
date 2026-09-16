@@ -201,3 +201,101 @@
   color: #666;
   padding-left: 22px;
 }
+
+.folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.folder-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: #d0d0d0;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.folder-header:hover {
+  color: #7eb8f7;
+}
+
+.folder-caret {
+  flex: none;
+  width: 10px;
+  color: #888;
+  font-size: 0.7rem;
+}
+
+.tour-btn {
+  flex: none;
+  padding: 2px 8px;
+  background: #1e1e2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  color: #aaa;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.tour-btn:hover:not(:disabled) {
+  background: #252535;
+  color: #e0e0e0;
+}
+
+.tour-btn.active {
+  background: rgba(126, 184, 247, 0.15);
+  border-color: #7eb8f7;
+  color: #7eb8f7;
+}
+
+.tour-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.place-list {
+  list-style: none;
+  margin: 4px 0 10px;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.place-name {
+  width: 100%;
+  padding: 3px 6px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #d0d0d0;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.place-name:hover:not(:disabled) {
+  background: #1e1e2e;
+  color: #7eb8f7;
+}
+
+.place-name.active {
+  background: rgba(126, 184, 247, 0.12);
+  color: #7eb8f7;
+}
+
+.place-name:disabled {
+  color: #555;
+  cursor: default;
+}

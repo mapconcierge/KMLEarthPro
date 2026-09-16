@@ -3,6 +3,7 @@ import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer 
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
+import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import { MvtImageryProvider } from './MvtImageryProvider'
 import './CesiumView.css'
 
@@ -77,6 +78,9 @@ interface PlateauEntry {
   east: number
   north: number
 }
+
+// 「場所」から飛んだときの伏角
+const PLACE_PITCH = -35
 
 const KML_PATTERN = /\.(kml|kmz)$/i
 
@@ -357,6 +361,18 @@ export default function CesiumView({ visible }: Props) {
       viewer.creditDisplay.addStaticCredit(new Cesium.Credit(TERRAIN_CREDIT, true))
       await addVectorLayer(viewer)
       watchBuildings(viewer)
+
+      usePlaceStore.getState().registerFlier('3d-cesium', (place) => {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(place.lng, place.lat, place.height),
+          orientation: {
+            heading: 0,
+            pitch: Cesium.Math.toRadians(PLACE_PITCH),
+            roll: 0,
+          },
+          duration: FLY_DURATION_MS / 1000,
+        })
+      })
 
       useKmlStore.getState().setFlyTo((id) => {
         const source = sourcesRef.current.get(id)

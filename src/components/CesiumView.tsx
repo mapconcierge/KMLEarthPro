@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
+import { useLayerStore } from '../store/layerStore'
 import { MvtImageryProvider } from './MvtImageryProvider'
 import './CesiumView.css'
 
@@ -108,6 +109,10 @@ function watchPlateau(viewer: Viewer) {
       const Cesium = await import('cesium')
       const camera = viewer.camera
 
+      if (!useLayerStore.getState().plateau) {
+        unloadAll()
+        return
+      }
       if (camera.positionCartographic.height > PLATEAU_MAX_HEIGHT) {
         unloadAll()
         return
@@ -167,6 +172,8 @@ function watchPlateau(viewer: Viewer) {
   }
 
   viewer.camera.changed.addEventListener(() => void update())
+  // チェックボックスの切り替えでも即座に反映する
+  useLayerStore.subscribe(() => void update())
 }
 
 export default function CesiumView({ visible }: Props) {

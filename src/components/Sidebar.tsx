@@ -1,5 +1,6 @@
 import { useEngineStore, type Engine } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
+import { useLayerStore } from '../store/layerStore'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
@@ -12,6 +13,8 @@ export default function Sidebar() {
   const { engine, setEngine } = useEngineStore()
   const kmlEntries = useKmlStore((s) => s.entries)
   const flyToKml = useKmlStore((s) => s.flyTo)
+  const plateauVisible = useLayerStore((s) => s.plateau)
+  const setPlateauVisible = useLayerStore((s) => s.setPlateau)
 
   return (
     <aside className="sidebar">
@@ -70,6 +73,17 @@ export default function Sidebar() {
               <label>
                 <input type="checkbox" defaultChecked /> OpenFreeMap
               </label>
+            </li>
+            <li>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={plateauVisible}
+                  onChange={(e) => setPlateauVisible(e.target.checked)}
+                />{' '}
+                PLATEAU 建築物
+              </label>
+              <span className="layer-note">CesiumJS のみ</span>
             </li>
           </ul>
         </section>

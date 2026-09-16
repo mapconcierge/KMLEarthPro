@@ -11,7 +11,8 @@
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
     "typecheck": "tsc -b --noEmit",
-    "copy:static-deps": "node scripts/copy-static-deps.mjs"
+    "copy:static-deps": "node scripts/copy-static-deps.mjs",
+    "plateau:index": "node scripts/fetch-plateau-index.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",

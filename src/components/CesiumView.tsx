@@ -3,7 +3,6 @@ import type { KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { useKmlStore } from '../store/kmlStore'
 import { MvtImageryProvider } from './MvtImageryProvider'
-import { PLATEAU_BUILDINGS } from './plateauBuildings'
 import './CesiumView.css'
 
 type InitState = 'idle' | 'loading' | 'ready' | 'error'
@@ -27,10 +26,21 @@ const TERRAIN_CREDIT =
 
 const PLATEAU_CREDIT =
   '建築物モデル: <a href="https://www.mlit.go.jp/plateau/">PLATEAU</a>（国土交通省, CC BY 4.0）'
-// 23 区全体を覆う範囲。ここに入ったときだけ tileset を読み込む
-const TOKYO_BOUNDS = { west: 139.5, south: 35.5, east: 139.95, north: 35.85 }
+// scripts/fetch-plateau-index.mjs が生成する全国 448 自治体の索引
+const PLATEAU_INDEX_URL = `${import.meta.env.BASE_URL}plateau-buildings.json`
 // これより高いと建物は見えないので読み込まない
 const PLATEAU_MAX_HEIGHT = 60_000
+// 同時に載せる自治体数の上限。政令市が隣接する地域で際限なく増えるのを防ぐ
+const PLATEAU_MAX_TILESETS = 12
+
+interface PlateauEntry {
+  name: string
+  url: string
+  west: number
+  south: number
+  east: number
+  north: number
+}
 
 const KML_PATTERN = /\.(kml|kmz)$/i
 
@@ -50,44 +60,94 @@ async function addVectorLayer(viewer: Viewer) {
 }
 
 /**
- * カメラが東京 23 区の上空に入ったら PLATEAU の建築物 3D Tiles を読み込む。
+ * カメラの視野に入った自治体の PLATEAU 建築物 3D Tiles を読み込み、
+ * 視野から外れたものは破棄する。
  *
- * 23 区分で tileset.json が 23 本あるため、日本を見ていない利用者に無駄な
- * リクエストをさせないよう、範囲と高度で絞ってから一度だけ読み込む。
- * 読み込み後は Cesium の 3D Tiles が視錐台と LOD で取捨選択する。
+ * 全国 448 自治体ぶんの tileset.json をまとめて読むことはできないため、
+ * 索引（名称と範囲だけの軽量な JSON）を先に引き、視野と交差するものだけを
+ * 載せる。索引自体も日本を見ていない利用者には読ませない。
  */
 function watchPlateau(viewer: Viewer) {
-  let loaded = false
+  let index: PlateauEntry[] | null = null
+  let indexPending = false
+  let creditShown = false
+  const loaded = new Map<string, { tileset: unknown; entry: PlateauEntry }>()
+  let updating = false
 
-  const load = async () => {
-    const Cesium = await import('cesium')
-    const results = await Promise.allSettled(
-      PLATEAU_BUILDINGS.map(([, url]) => Cesium.Cesium3DTileset.fromUrl(url)),
-    )
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'fulfilled') {
-        viewer.scene.primitives.add(result.value)
-      } else {
-        console.error(`[PLATEAU] ${PLATEAU_BUILDINGS[index][0]} の読み込みに失敗:`, result.reason)
-      }
+  const intersects = (e: PlateauEntry, view: { west: number; south: number; east: number; north: number }) =>
+    e.west <= view.east && e.east >= view.west && e.south <= view.north && e.north >= view.south
+
+  const unloadAll = () => {
+    for (const { tileset } of loaded.values()) {
+      viewer.scene.primitives.remove(tileset)
     }
-    viewer.creditDisplay.addStaticCredit(new Cesium.Credit(PLATEAU_CREDIT, true))
+    loaded.clear()
   }
 
-  viewer.camera.changed.addEventListener(() => {
-    if (loaded) return
-    const p = viewer.camera.positionCartographic
-    const lng = (p.longitude * 180) / Math.PI
-    const lat = (p.latitude * 180) / Math.PI
-    const inTokyo =
-      lng >= TOKYO_BOUNDS.west &&
-      lng <= TOKYO_BOUNDS.east &&
-      lat >= TOKYO_BOUNDS.south &&
-      lat <= TOKYO_BOUNDS.north
-    if (!inTokyo || p.height > PLATEAU_MAX_HEIGHT) return
-    loaded = true
-    void load()
-  })
+  const update = async () => {
+    if (updating) return
+    updating = true
+    try {
+      const Cesium = await import('cesium')
+      const camera = viewer.camera
+
+      if (camera.positionCartographic.height > PLATEAU_MAX_HEIGHT) {
+        unloadAll()
+        return
+      }
+
+      // computeViewRectangle() はカメラを傾けると地平線まで含む巨大な矩形を返し、
+      // 遠方の自治体で枠が埋まってしまう。カメラ直下を中心に高度から決めた
+      // 範囲で判定する
+      const pos = camera.positionCartographic
+      const lng = Cesium.Math.toDegrees(pos.longitude)
+      const lat = Cesium.Math.toDegrees(pos.latitude)
+      const radiusKm = Math.max(3, (pos.height / 1000) * 2)
+      const dLat = radiusKm / 111
+      const dLng = dLat / Math.max(0.2, Math.cos(pos.latitude))
+      const view = {
+        west: lng - dLng,
+        south: lat - dLat,
+        east: lng + dLng,
+        north: lat + dLat,
+      }
+
+      if (!index) {
+        if (indexPending) return
+        indexPending = true
+        index = (await fetch(PLATEAU_INDEX_URL).then((r) => r.json())) as PlateauEntry[]
+      }
+
+      // 視野から外れたものを先に外し、上限の枠を空ける
+      for (const [url, { tileset, entry }] of loaded) {
+        if (!intersects(entry, view)) {
+          viewer.scene.primitives.remove(tileset)
+          loaded.delete(url)
+        }
+      }
+
+      const wanted = index.filter((e) => intersects(e, view) && !loaded.has(e.url))
+      for (const entry of wanted.slice(0, PLATEAU_MAX_TILESETS - loaded.size)) {
+        try {
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url)
+          // 読み込み中に視野から外れていたら捨てる
+          if (!intersects(entry, view)) continue
+          viewer.scene.primitives.add(tileset)
+          loaded.set(entry.url, { tileset, entry })
+          if (!creditShown) {
+            viewer.creditDisplay.addStaticCredit(new Cesium.Credit(PLATEAU_CREDIT, true))
+            creditShown = true
+          }
+        } catch (err) {
+          console.error(`[PLATEAU] ${entry.name} の読み込みに失敗:`, err)
+        }
+      }
+    } finally {
+      updating = false
+    }
+  }
+
+  viewer.camera.changed.addEventListener(() => void update())
 }
 
 export default function CesiumView({ visible }: Props) {

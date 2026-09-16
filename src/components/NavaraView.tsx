@@ -20,6 +20,9 @@ const PAPERS_MAX_ZOOM = 22
 // terrarium エンコーディング、配信形式は WebP
 const TERRAIN_TILES = 'https://terrain.reearth.land/mapterhorn-egm08/terrarium/ellipsoid/{z}/{x}/{y}.webp'
 const TERRAIN_MAX_ZOOM = 14
+// NOTE: z0 タイル (.../ellipsoid/0/0/0.webp) は配信側が 500 を返す（z1 以降は正常）。
+// コンソールに 1 件エラーが出るが描画への影響はない。minZoom: 1 で回避しようとすると
+// グローブ表面が描画されなくなるため、設定しない
 
 // Re:Earth Buildings: Overture Maps 由来のグローバル 3D 建物（3D Tiles）。
 // 常時載せるとタイル読み込みを占有し、基図と地形の取得が止まる

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ThreeView, { Color, TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
+import ThreeView, { TERRARIUM_ELEVATION_DECODER } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import './NavaraView.css'
 
@@ -9,53 +9,18 @@ interface Props {
   visible: boolean
 }
 
-// OpenFreeMap の planet タイル URL は配信バージョンがパスに含まれ随時更新されるため、
-// ハードコードせず TileJSON から実行時に解決する
-const OFM_TILEJSON = 'https://tiles.openfreemap.org/planet'
-const OFM_NATURAL_EARTH = 'https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png'
+// Re:Earth Papers: OpenStreetMap (Protomaps) から描画済みのラスター基図。
+// z0-22 と深いため、地球儀から街区まで 1 ソースで賄える。
+// 自前でベクタータイルを配色する必要がなくなり、グローブのタイル分割深度も
+// このラスターが決めるのでドレープ解像度の問題も起きない。
+const PAPERS_TILES = 'https://papers.reearth.land/styles/papers-light/tile/{z}/{x}/{y}.webp'
+const PAPERS_MAX_ZOOM = 22
 
-// Mapterhorn のグローバル標高タイル（terrarium エンコーディング、tileSize 512、
-// z16 まで提供。配信形式は PNG ではなく WebP）
-const MAPTERHORN_DEM = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'
-const MAPTERHORN_MAX_ZOOM = 16
+// Re:Earth Terrain: Mapterhorn を EGM2008 ジオイドで補正したグローバル標高。
+// terrarium エンコーディング、配信形式は WebP
+const TERRAIN_TILES = 'https://terrain.reearth.land/mapterhorn-egm08/terrarium/ellipsoid/{z}/{x}/{y}.webp'
+const TERRAIN_MAX_ZOOM = 14
 
-const hex = (value: number) => new Color().setHex(value)
-
-type VectorLayerStyle = {
-  sourceLayers: string[]
-  polygon?: { color: Color }
-  polyline?: { color: Color; width: number }
-}
-
-// Navara の vector レイヤーは属性フィルタを持たず、ソースレイヤー単位で 1 スタイル
-// しか割り当てられない。landcover / landuse / park は森林・氷河・農地・市街地などを
-// 1 レイヤーに含むため、単色で塗ると地形の上に意味のない斑模様が乗るだけになる。
-// ジオメトリ量も最大級で読み込みを圧迫するため描画しない。
-// 地表の色と質感は Natural Earth ラスター + 地形陰影が担当する。
-//
-// featureCreated / evaluator.evaluate による class 別の彩色も試したが、
-// コールバックが地物ごとにメインスレッドで走るため、ビューポートが大きいと
-// 描画ループが枯渇して画面が真っ暗になる（実測 fps 0）。採用しない。
-const VECTOR_LAYERS: VectorLayerStyle[] = [
-  { sourceLayers: ['water'], polygon: { color: hex(0x5b91c4) } },
-  { sourceLayers: ['waterway'], polyline: { color: hex(0x5b91c4), width: 1 } },
-  { sourceLayers: ['transportation'], polyline: { color: hex(0x9a9184), width: 1 } },
-  { sourceLayers: ['boundary'], polyline: { color: hex(0x8f7a9c), width: 1 } },
-  { sourceLayers: ['building'], polygon: { color: hex(0x9c9184) } },
-]
-
-// clampToGround の地物はグローブのドレープテクスチャにベイクされ、その解像度は
-// グローブのタイル分割深度に律速される。分割深度は最も深いソースが決めるため、
-// Natural Earth ラスター（maxZoom 6）だけでは大縮尺で z6 相当に潰れる。
-// Mapterhorn の DEM（z16）を terrain として与えることで分割が深くなり解決する。
-// overscaledMaxZoom や maxSse では分割深度は変わらない。
-const buildLayer = (style: VectorLayerStyle, source: Source, clampToGround: boolean) => ({
-  type: 'vector' as const,
-  source,
-  sourceLayers: style.sourceLayers,
-  ...(style.polygon ? { polygon: { ...style.polygon, clampToGround } } : {}),
-  ...(style.polyline ? { polyline: { ...style.polyline, clampToGround } } : {}),
-})
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -95,47 +60,40 @@ export default function NavaraView({ visible }: Props) {
       // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
       view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90, heading: 0 })
 
-      // 標高タイルを地球表面として描画する。地形表現に加えて、グローブの
-      // タイル分割が DEM の深度（z16）まで細かくなるため、clampToGround の
-      // ベクター地物がベイクされる解像度も大縮尺まで確保される。
+      // 標高タイルを地球表面として描画する
       const dem = view.addSource({
         type: 'raster-dem',
-        url: MAPTERHORN_DEM,
+        url: TERRAIN_TILES,
         elevationDecoder: TERRARIUM_ELEVATION_DECODER(),
         tileSize: 512,
-        maxZoom: MAPTERHORN_MAX_ZOOM,
+        maxZoom: TERRAIN_MAX_ZOOM,
       })
       view.addLayer({ type: 'terrain', source: dem })
-
-      // 低ズームの地球儀外観は Natural Earth ラスター（zoom 0-6）が担当し、
-      // 拡大時はベクタータイルのレイヤーが詳細を描く
-      const base = view.addSource({ type: 'raster-tile', url: OFM_NATURAL_EARTH, maxZoom: 6 })
-      view.addLayer({ type: 'raster', source: base })
 
       // NOTE: terrain レイヤーと hillshade レイヤーは併用できない。併用すると
       // グローブ表面が一切描画されず画面が真っ暗になる（DEM を別ソースに分けても同じ）。
       // 地形の陰影は terrain メッシュがシーンの太陽光から受ける陰影が担当する。
 
-      const tileJson = await fetch(OFM_TILEJSON).then((r) => r.json())
-      const vector = view.addSource({
-        type: 'vector-tile',
-        url: tileJson.tiles[0],
-        minZoom: tileJson.minzoom,
-        maxZoom: tileJson.maxzoom,
+      const basemap = view.addSource({
+        type: 'raster-tile',
+        url: PAPERS_TILES,
+        maxZoom: PAPERS_MAX_ZOOM,
       })
-      for (const style of VECTOR_LAYERS) {
-        view.addLayer(buildLayer(style, vector, true))
-      }
+      view.addLayer({ type: 'raster', source: basemap })
 
-      // OSM 由来データのため ODbL に基づく帰属表示が必須
+      // NOTE: Re:Earth Buildings (3D Tiles) は追加すると基図と地形のタイル取得が
+      // 止まる。実測で Papers は建物ありだと z2、建物なしだと z15 まで到達した。
+      // グローバルなタイルセットが Navara の読み込みを占有するため、既定では載せない。
+
+      // 各 TileJSON / tileset.json が要求する帰属表示
       view.attribution?.add([
-        { attribution: 'OpenFreeMap', attributionUrl: 'https://openfreemap.org/' },
-        { attribution: 'OpenMapTiles', attributionUrl: 'https://openmaptiles.org/' },
+        { attribution: 'Re:Earth Papers', attributionUrl: 'https://papers.reearth.land/attribution' },
+        { attribution: 'Re:Earth Terrain', attributionUrl: 'https://terrain.reearth.land/' },
+        { attribution: 'Mapterhorn', attributionUrl: 'https://mapterhorn.com/' },
         {
           attribution: '© OpenStreetMap contributors',
           attributionUrl: 'https://www.openstreetmap.org/copyright',
         },
-        { attribution: '© Mapterhorn', attributionUrl: 'https://mapterhorn.com/attribution' },
       ])
 
       setInitState('ready')

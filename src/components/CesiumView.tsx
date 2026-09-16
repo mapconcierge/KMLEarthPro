@@ -33,6 +33,19 @@ const PLATEAU_MAX_HEIGHT = 60_000
 // 同時に載せる自治体数の上限。政令市が隣接する地域で際限なく増えるのを防ぐ
 const PLATEAU_MAX_TILESETS = 12
 
+// 3D Tiles の読み込みチューニング。建物は箱と屋根が主で細部が少ないため、
+// 既定より粗い SSE でも見た目の損失に対して初回描画が大きく速くなる
+const PLATEAU_TILESET_OPTIONS = {
+  // 既定 16。大きいほど要求タイルが減る
+  maximumScreenSpaceError: 24,
+  // 中間 LOD を飛ばして必要な解像度に直接到達させる
+  skipLevelOfDetail: true,
+  baseScreenSpaceError: 1024,
+  // 画面中央を優先し、粗い層を先に敷いてから精細化する
+  foveatedScreenSpaceError: true,
+  progressiveResolutionHeightFraction: 0.5,
+}
+
 interface PlateauEntry {
   name: string
   url: string
@@ -102,15 +115,16 @@ function watchPlateau(viewer: Viewer) {
       const pos = camera.positionCartographic
       const lng = Cesium.Math.toDegrees(pos.longitude)
       const lat = Cesium.Math.toDegrees(pos.latitude)
-      const radiusKm = Math.max(3, (pos.height / 1000) * 2)
-      const dLat = radiusKm / 111
-      const dLng = dLat / Math.max(0.2, Math.cos(pos.latitude))
-      const view = {
-        west: lng - dLng,
-        south: lat - dLat,
-        east: lng + dLng,
-        north: lat + dLat,
+      // 読み込みは視野より広めに取り、隣接自治体を先読みする。
+      // 保持はさらに広く取って、境界付近での読み込みと破棄の往復を防ぐ
+      const box = (radiusKm: number) => {
+        const dLat = radiusKm / 111
+        const dLng = dLat / Math.max(0.2, Math.cos(pos.latitude))
+        return { west: lng - dLng, south: lat - dLat, east: lng + dLng, north: lat + dLat }
       }
+      const loadRadiusKm = Math.max(4, (pos.height / 1000) * 3)
+      const loadArea = box(loadRadiusKm)
+      const keepArea = box(loadRadiusKm * 1.6)
 
       if (!index) {
         if (indexPending) return
@@ -118,20 +132,20 @@ function watchPlateau(viewer: Viewer) {
         index = (await fetch(PLATEAU_INDEX_URL).then((r) => r.json())) as PlateauEntry[]
       }
 
-      // 視野から外れたものを先に外し、上限の枠を空ける
+      // 保持範囲から外れたものを先に外し、上限の枠を空ける
       for (const [url, { tileset, entry }] of loaded) {
-        if (!intersects(entry, view)) {
+        if (!intersects(entry, keepArea)) {
           viewer.scene.primitives.remove(tileset)
           loaded.delete(url)
         }
       }
 
-      const wanted = index.filter((e) => intersects(e, view) && !loaded.has(e.url))
+      const wanted = index.filter((e) => intersects(e, loadArea) && !loaded.has(e.url))
       for (const entry of wanted.slice(0, PLATEAU_MAX_TILESETS - loaded.size)) {
         try {
-          const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url)
-          // 読み込み中に視野から外れていたら捨てる
-          if (!intersects(entry, view)) continue
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(entry.url, PLATEAU_TILESET_OPTIONS)
+          // 読み込み中に範囲から外れていたら捨てる
+          if (!intersects(entry, keepArea)) continue
           viewer.scene.primitives.add(tileset)
           loaded.set(entry.url, { tileset, entry })
           if (!creditShown) {

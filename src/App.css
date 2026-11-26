@@ -1,7 +1,8 @@
 .app-layout {
   display: grid;
   grid-template-columns: 280px 1fr;
-  grid-template-rows: 1fr 24px;
+  /* minmax(0, 1fr): 内容の高さで行が伸びてステータスバーが画面外へ押し出されるのを防ぐ */
+  grid-template-rows: minmax(0, 1fr) 24px;
   width: 100%;
   height: 100%;
 }
@@ -9,6 +10,7 @@
 .map-area {
   grid-column: 2;
   grid-row: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }

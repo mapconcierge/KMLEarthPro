@@ -1,11 +1,15 @@
 .sidebar {
   grid-column: 1;
-  grid-row: 1 / 3;
+  /* 下端 24px はステータスバー（全幅）の行。サイドバーはそこへ食い込ませない */
+  grid-row: 1;
+  /* grid 項目の min-height:auto だと内容に押されて行が伸びるため、内部スクロールさせる */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: #0f0f1a;
   border-right: 1px solid #2a2a3e;
-  overflow-y: auto;
+  /* スクロールするのはナビ部分だけ。ヘッダーとフッター（Phase 表示）は常に見せる */
+  overflow: hidden;
 }
 
 .sidebar-header {
@@ -28,6 +32,8 @@
 
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 8px 0;
 }
 
@@ -131,6 +137,7 @@
 }
 
 .sidebar-footer {
+  flex-shrink: 0;
   padding: 10px 16px;
   border-top: 1px solid #2a2a3e;
 }

@@ -1,6 +1,6 @@
 {
   "name": "kml-earth-pro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Google Earth Pro の代替 Digital Earth Browser — OGC KML 2.3 対応 OSS Web アプリ",
   "type": "module",
   "scripts": {

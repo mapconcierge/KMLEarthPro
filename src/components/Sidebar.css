@@ -309,3 +309,14 @@
   border-radius: 3px;
   cursor: pointer;
 }
+
+.app-title-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.app-version {
+  font-size: 0.65rem;
+  color: #666;
+  line-height: 1.5;
+}

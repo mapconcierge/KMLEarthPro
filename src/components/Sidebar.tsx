@@ -61,7 +61,10 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="app-title">KML Earth Pro</h1>
+        <div className="app-title-row">
+          <h1 className="app-title">KML Earth Pro</h1>
+          <span className="app-version">v{__APP_VERSION__}</span>
+        </div>
         <p className="app-subtitle">Digital Earth Browser</p>
       </div>
       <nav className="sidebar-nav">

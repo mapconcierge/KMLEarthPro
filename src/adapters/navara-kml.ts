@@ -3,7 +3,7 @@ import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } fro
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
 import { KML_ICON_BASE_PX } from '../kml/style'
-import { findInitialView } from '../kml/camera'
+import { findInitialView, resolveAbsoluteView, type ElevationSampler } from '../kml/camera'
 import type { AbstractView, KmlDocument } from '../kml/types'
 
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
@@ -111,38 +111,46 @@ export function removeKmlFromNavara(view: View, k: NavaraKml): void {
 
 /**
  * 文書の視点があればそこへ、無ければ範囲全体へ飛ぶ。
+ * 標高は view.sampleTerrainMostDetailed（呼び出し側が sample として渡す）で引く。
  * LookAt は Navara の distance（注視点からカメラ前方へ range 離れる）にそのまま対応する。
  * pitch は水平=0・真下=-90 なので tilt - 90。
  */
-export function flyToNavaraKml(view: View, k: NavaraKml, duration: number): void {
-  const v = k.view
-  if (v?.kind === 'LookAt') {
-    const tilt = Math.min(Math.max(v.tilt, 0), 90)
+export async function flyToNavaraKml(
+  view: View,
+  k: NavaraKml,
+  duration: number,
+  sample: ElevationSampler,
+): Promise<void> {
+  if (!k.view) {
+    if (k.bounds) flyToNavaraBounds(view, k.bounds, duration)
+    return
+  }
+  // altitudeMode に応じて地形標高を足し、絶対高度へ直してから飛ぶ
+  const v = await resolveAbsoluteView(k.view, sample)
+  if (v.kind === 'LookAt') {
     void view.flyTo(
       {
         lng: v.longitude,
         lat: v.latitude,
-        height: v.altitudeMode === 'clampToGround' ? 0 : v.altitude,
+        height: v.altitude,
         distance: v.range,
-        pitch: tilt - 90,
+        pitch: Math.min(Math.max(v.tilt, 0), 90) - 90,
         heading: v.heading,
       },
       { duration },
     )
-  } else if (v?.kind === 'Camera') {
+  } else {
     void view.flyTo(
       {
         lng: v.longitude,
         lat: v.latitude,
-        height: v.altitudeMode === 'clampToGround' ? 0 : v.altitude,
+        height: v.altitude,
         pitch: Math.min(Math.max(v.tilt, 0), 180) - 90,
         heading: v.heading,
         roll: v.roll,
       },
       { duration },
     )
-  } else if (k.bounds) {
-    flyToNavaraBounds(view, k.bounds, duration)
   }
 }
 

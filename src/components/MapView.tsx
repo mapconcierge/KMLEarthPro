@@ -9,7 +9,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { addKmlToMap, geoJsonBounds, removeKmlFromMap } from '../adapters/maplibre-kml'
-import { findInitialView, viewToCenterZoom } from '../kml/camera'
+import { findInitialView, resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -91,9 +91,33 @@ export default function MapView() {
       const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
       const view = doc && findInitialView(doc)
       if (view) {
-        // 自由カメラ API は使わず中心+ズームへ換算する（理由は viewToCenterZoom のコメント）
-        const h = map.getContainer().clientHeight
-        map.flyTo({ ...viewToCenterZoom(view, h), duration })
+        // 自由カメラ API は使わず中心+ズームへ換算する（理由は viewToCenterZoom のコメント）。
+        // 地形標高は DEM タイルが読み込まれていないと引けないため二段階にする:
+        //  1) いまの標高（未取得なら 0 m）で飛ぶ
+        //  2) 飛行が終わり DEM が読み込まれた（idle）後に、引けた標高で同じ視点を再設定する
+        //     （MapLibre は標高が分かった後に中心を指定し直すと、注視点が地形上の画面中央に来る）
+        const elevation = (lng: number, lat: number) => map.queryTerrainElevation([lng, lat]) ?? undefined
+        const target = async () => {
+          const resolved = await resolveAbsoluteView(view, elevation)
+          const ground = elevation(view.longitude, view.latitude) ?? 0
+          return viewToCenterZoom(resolved, map.getContainer().clientHeight, 85, ground)
+        }
+        void target().then((first) => {
+          map.flyTo({ ...first, duration })
+          map.once('moveend', () =>
+            map.once('idle', () => {
+              void target().then((refined) => {
+                // 利用者が動かした後は上書きしない（飛行先から離れていれば何もしない）
+                const c = map.getCenter()
+                const moved =
+                  Math.abs(c.lng - first.center[0]) > 1e-4 ||
+                  Math.abs(c.lat - first.center[1]) > 1e-4 ||
+                  Math.abs(map.getZoom() - first.zoom) > 0.01
+                if (!moved) map.jumpTo(refined)
+              })
+            }),
+          )
+        })
         return
       }
       const bounds = rendered[id]

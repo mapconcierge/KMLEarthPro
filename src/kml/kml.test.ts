@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
-import { cameraToPose, findInitialView, lookAtToPose, viewToCenterZoom } from './camera'
+import { cameraToPose, findInitialView, lookAtToPose, resolveAbsoluteView, viewToCenterZoom } from './camera'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
 import { serializeKml } from './serialize'
@@ -159,5 +159,46 @@ describe('viewToCenterZoom (MapLibre)', () => {
     expect(v.center[0]).toBeCloseTo(139, 9)
     expect(v.center[1]).toBeCloseTo(35 + 1000 / 110540, 6)
     expect(v.bearing).toBe(0)
+  })
+})
+
+describe('resolveAbsoluteView（地形標高の反映）', () => {
+  const sample = (lng: number, lat: number) => (lng === 139 && lat === 35 ? 120 : undefined)
+  const base = { longitude: 139, latitude: 35, altitude: 30, heading: 0, tilt: 45 }
+  const look = { kind: 'LookAt' as const, ...base, range: 500 }
+  const cam = { kind: 'Camera' as const, ...base, roll: 0 }
+
+  it('LookAt: clampToGround は標高、relativeToGround は標高+altitude、absolute はそのまま', async () => {
+    expect((await resolveAbsoluteView({ ...look, altitudeMode: 'clampToGround' }, sample)).altitude).toBe(120)
+    expect((await resolveAbsoluteView({ ...look, altitudeMode: 'relativeToGround' }, sample)).altitude).toBe(150)
+    expect((await resolveAbsoluteView({ ...look, altitudeMode: 'absolute' }, sample)).altitude).toBe(30)
+  })
+  it('Camera: clamp も relative も標高+altitude（地面に潜らない）', async () => {
+    expect((await resolveAbsoluteView({ ...cam, altitudeMode: 'clampToGround' }, sample)).altitude).toBe(150)
+    expect((await resolveAbsoluteView({ ...cam, altitudeMode: 'relativeToGround' }, sample)).altitude).toBe(150)
+  })
+  it('結果は altitudeMode=absolute になり、元の視点は変更されない', async () => {
+    const src = { ...look, altitudeMode: 'relativeToGround' as const }
+    const out = await resolveAbsoluteView(src, sample)
+    expect(out.altitudeMode).toBe('absolute')
+    expect(src.altitude).toBe(30)
+  })
+  it('標高が引けない/例外のときは 0 m を地面とみなす', async () => {
+    const none = { ...look, longitude: 10, altitudeMode: 'relativeToGround' as const }
+    expect((await resolveAbsoluteView(none, sample)).altitude).toBe(30)
+    const boom = () => { throw new Error('x') }
+    expect((await resolveAbsoluteView({ ...look, altitudeMode: 'clampToGround' }, boom)).altitude).toBe(0)
+  })
+  it('標高 120m の地面に clamp した LookAt は、地面標高を渡せば標高 0m の場合と同じ中心・zoom になる', async () => {
+    const flat = viewToCenterZoom({ ...look, altitudeMode: 'clampToGround' }, 800, 85, 0)
+    const resolved = await resolveAbsoluteView({ ...look, altitudeMode: 'clampToGround' }, sample)
+    const hilly = viewToCenterZoom(resolved, 800, 85, 120)
+    expect(hilly.zoom).toBeCloseTo(flat.zoom, 9)
+    expect(hilly.center[0]).toBeCloseTo(flat.center[0], 9)
+    expect(hilly.center[1]).toBeCloseTo(flat.center[1], 9)
+  })
+  it('地面標高を渡さないと、標高のある地点ではカメラが高く見積もられ zoom が小さくなる', async () => {
+    const resolved = await resolveAbsoluteView({ ...look, altitudeMode: 'clampToGround' }, sample)
+    expect(viewToCenterZoom(resolved, 800, 85, 0).zoom).toBeLessThan(viewToCenterZoom(resolved, 800, 85, 120).zoom)
   })
 })

@@ -149,6 +149,9 @@ export default function NavaraView({ visible }: Props) {
 
       // kmlStore の文書を購読して描画する（エンジン切替で Navara が後から初期化されても
       // 読み込み済みの KML がここで描かれる）
+      // 地形（DEM ソース）の標高。取得できなければ undefined（呼び出し側が 0 m 扱い）
+      const sampleTerrain = async (lng: number, lat: number) =>
+        (await view.sampleTerrainMostDetailed(dem, [{ lat, lng }]))[0]?.height
       const pending: NavaraKml = { source: null as never, layerId: '', bounds: undefined, view: undefined }
       const rendered: Record<string, NavaraKml> = {}
       const syncKml = () => {
@@ -165,7 +168,7 @@ export default function NavaraView({ visible }: Props) {
                 return
               }
               rendered[e.id] = k
-              flyToNavaraKml(view, k, FLY_DURATION_MS / 2)
+              void flyToNavaraKml(view, k, FLY_DURATION_MS / 2, sampleTerrain)
             })
             .catch((err: unknown) => {
               delete rendered[e.id]
@@ -183,7 +186,7 @@ export default function NavaraView({ visible }: Props) {
       syncKml()
       useKmlStore.getState().registerFlyer('3d-navara', (id) => {
         const k = rendered[id]
-        if (k && k !== pending) flyToNavaraKml(view, k, FLY_DURATION_MS / 2)
+        if (k && k !== pending) void flyToNavaraKml(view, k, FLY_DURATION_MS / 2, sampleTerrain)
       })
 
       setInitState('ready')

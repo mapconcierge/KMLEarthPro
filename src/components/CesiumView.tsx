@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import { findInitialView } from '../kml/camera'
+import { findInitialView, resolveAbsoluteView } from '../kml/camera'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -384,14 +384,22 @@ export default function CesiumView({ visible }: Props) {
       const flyToKml = async (id: string) => {
         const ds = sourcesRef.current.get(id)
         const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
-        const view = doc && findInitialView(doc)
+        const found = doc && findInitialView(doc)
         const Cesium = await import('cesium')
         const rad = Cesium.Math.toRadians
-        const alt = (v: { altitude: number; altitudeMode: string }) =>
-          v.altitudeMode === 'clampToGround' ? 0 : v.altitude
+        // altitudeMode に応じて、地形（Re:Earth Terrain）の標高を足した絶対高度へ直す。
+        // 取れなければ resolveAbsoluteView が標高 0 m として扱う
+        const view =
+          found &&
+          (await resolveAbsoluteView(found, async (lng, lat) => {
+            const [p] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [
+              Cesium.Cartographic.fromDegrees(lng, lat),
+            ])
+            return p?.height
+          }))
         if (view?.kind === 'LookAt') {
           viewer.camera.flyToBoundingSphere(
-            new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, alt(view)), 0),
+            new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, view.altitude), 0),
             {
               offset: new Cesium.HeadingPitchRange(rad(view.heading), rad(Math.min(Math.max(view.tilt, 0), 90) - 90), view.range),
               duration: 3,
@@ -399,7 +407,7 @@ export default function CesiumView({ visible }: Props) {
           )
         } else if (view?.kind === 'Camera') {
           viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, alt(view)),
+            destination: Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, view.altitude),
             orientation: {
               heading: rad(view.heading),
               pitch: rad(Math.min(Math.max(view.tilt, 0), 180) - 90),

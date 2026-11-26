@@ -3,7 +3,8 @@ import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } fro
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
 import { KML_ICON_BASE_PX } from '../kml/style'
-import type { KmlDocument } from '../kml/types'
+import { findInitialView } from '../kml/camera'
+import type { AbstractView, KmlDocument } from '../kml/types'
 
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
 // FeatureEvaluator でフィーチャのプロパティから当てる（2D と同じ変換結果を共有）。
@@ -31,6 +32,8 @@ export interface NavaraKml {
   layerId: string
   /** [west, south, east, north] */
   bounds: [number, number, number, number] | undefined
+  /** 文書の LookAt / Camera。あれば範囲より優先して飛ぶ */
+  view: AbstractView | undefined
 }
 
 const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
@@ -97,13 +100,50 @@ export async function addKmlToNavara(
   layer.on('featureCreated', ({ evaluator }) => style(evaluator))
 
   const b = geoJsonBounds(fc) as [[number, number], [number, number]] | undefined
-  return { source, layerId: layer.id, bounds: b ? [b[0][0], b[0][1], b[1][0], b[1][1]] : undefined }
+  return { source, layerId: layer.id, view: findInitialView(doc), bounds: b ? [b[0][0], b[0][1], b[1][0], b[1][1]] : undefined }
 }
 
 export function removeKmlFromNavara(view: View, k: NavaraKml): void {
   // レイヤーが参照している間はソースを消せないので順序を守る
   view.deleteLayerById(k.layerId)
   k.source.delete()
+}
+
+/**
+ * 文書の視点があればそこへ、無ければ範囲全体へ飛ぶ。
+ * LookAt は Navara の distance（注視点からカメラ前方へ range 離れる）にそのまま対応する。
+ * pitch は水平=0・真下=-90 なので tilt - 90。
+ */
+export function flyToNavaraKml(view: View, k: NavaraKml, duration: number): void {
+  const v = k.view
+  if (v?.kind === 'LookAt') {
+    const tilt = Math.min(Math.max(v.tilt, 0), 90)
+    void view.flyTo(
+      {
+        lng: v.longitude,
+        lat: v.latitude,
+        height: v.altitudeMode === 'clampToGround' ? 0 : v.altitude,
+        distance: v.range,
+        pitch: tilt - 90,
+        heading: v.heading,
+      },
+      { duration },
+    )
+  } else if (v?.kind === 'Camera') {
+    void view.flyTo(
+      {
+        lng: v.longitude,
+        lat: v.latitude,
+        height: v.altitudeMode === 'clampToGround' ? 0 : v.altitude,
+        pitch: Math.min(Math.max(v.tilt, 0), 180) - 90,
+        heading: v.heading,
+        roll: v.roll,
+      },
+      { duration },
+    )
+  } else if (k.bounds) {
+    flyToNavaraBounds(view, k.bounds, duration)
+  }
 }
 
 /** 範囲全体が収まる高さ（FOV 約 60° を想定した目安）で真上気味に寄る */

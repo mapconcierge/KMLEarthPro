@@ -9,6 +9,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { addKmlToMap, geoJsonBounds, removeKmlFromMap } from '../adapters/maplibre-kml'
+import { findInitialView, viewToCenterZoom } from '../kml/camera'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -85,8 +86,24 @@ export default function MapView() {
     // KML: kmlStore の文書を購読して描画する。エンジン切替後も文書は store に残るので、
     // MapLibre が後から初期化されても、すでに読み込まれた KML がここで描かれる
     const rendered: Record<string, ReturnType<typeof geoJsonBounds>> = {}
+    // 文書に LookAt / Camera があればその視点へ、無ければ範囲全体へ寄る
+    const flyToKml = (id: string, duration: number) => {
+      const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
+      const view = doc && findInitialView(doc)
+      if (view) {
+        // 自由カメラ API は使わず中心+ズームへ換算する（理由は viewToCenterZoom のコメント）
+        const h = map.getContainer().clientHeight
+        map.flyTo({ ...viewToCenterZoom(view, h), duration })
+        return
+      }
+      const bounds = rendered[id]
+      if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration })
+    }
+    // isStyleLoaded() はタイル読み込み中に false を返し続けるため、初回の load を基準にする。
+    // （未ロードのまま return すると、次に store が変わるまで KML が描かれず飛行もしない）
+    let ready = false
     const syncKml = () => {
-      if (!map.isStyleLoaded()) return
+      if (!ready) return
       const entries = useKmlStore.getState().entries
       for (const e of entries) {
         if (e.doc && !(e.id in rendered)) {
@@ -100,9 +117,8 @@ export default function MapView() {
               delete rendered[entryId]
               return
             }
-            const bounds = geoJsonBounds(fc)
-            rendered[entryId] = bounds
-            if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 1500 })
+            rendered[entryId] = geoJsonBounds(fc)
+            flyToKml(entryId, 1500)
           })
         }
       }
@@ -113,12 +129,12 @@ export default function MapView() {
         }
       }
     }
-    map.on('load', syncKml)
-    const unsubscribeKml = useKmlStore.subscribe(syncKml)
-    useKmlStore.getState().registerFlyer('2d-maplibre', (id) => {
-      const bounds = rendered[id]
-      if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: FLY_DURATION_MS / 2 })
+    map.on('load', () => {
+      ready = true
+      syncKml()
     })
+    const unsubscribeKml = useKmlStore.subscribe(syncKml)
+    useKmlStore.getState().registerFlyer('2d-maplibre', (id) => flyToKml(id, FLY_DURATION_MS / 2))
 
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で
     // コンテナが 0x0 のまま固定されるのを防ぐ

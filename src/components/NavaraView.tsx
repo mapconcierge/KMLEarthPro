@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
-import { addKmlToNavara, flyToNavaraBounds, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { addKmlToNavara, flyToNavaraKml, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -149,7 +149,7 @@ export default function NavaraView({ visible }: Props) {
 
       // kmlStore の文書を購読して描画する（エンジン切替で Navara が後から初期化されても
       // 読み込み済みの KML がここで描かれる）
-      const pending: NavaraKml = { source: null as never, layerId: '', bounds: undefined }
+      const pending: NavaraKml = { source: null as never, layerId: '', bounds: undefined, view: undefined }
       const rendered: Record<string, NavaraKml> = {}
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
@@ -165,7 +165,7 @@ export default function NavaraView({ visible }: Props) {
                 return
               }
               rendered[e.id] = k
-              if (k.bounds) flyToNavaraBounds(view, k.bounds, FLY_DURATION_MS / 2)
+              flyToNavaraKml(view, k, FLY_DURATION_MS / 2)
             })
             .catch((err: unknown) => {
               delete rendered[e.id]
@@ -182,8 +182,8 @@ export default function NavaraView({ visible }: Props) {
       useKmlStore.subscribe(syncKml)
       syncKml()
       useKmlStore.getState().registerFlyer('3d-navara', (id) => {
-        const b = rendered[id]?.bounds
-        if (b) flyToNavaraBounds(view, b, FLY_DURATION_MS / 2)
+        const k = rendered[id]
+        if (k && k !== pending) flyToNavaraKml(view, k, FLY_DURATION_MS / 2)
       })
 
       setInitState('ready')

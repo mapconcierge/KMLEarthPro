@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
+import { cameraToPose, findInitialView, lookAtToPose, viewToCenterZoom } from './camera'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
 import { serializeKml } from './serialize'
@@ -91,5 +92,72 @@ describe('resolveIconHref', () => {
   it('解決できなければ undefined', () => {
     expect(resolveIconHref('missing.png', res)).toBeUndefined()
     expect(resolveIconHref(undefined, res)).toBeUndefined()
+  })
+})
+
+describe('camera', () => {
+  const look = (o: object) => ({
+    longitude: 139, latitude: 35, altitude: 0, heading: 0, tilt: 0, range: 1000,
+    altitudeMode: 'clampToGround' as const, ...o,
+  })
+  it('tilt=0 は真上から（位置は注視点の真上、pitch=-90）', () => {
+    const p = lookAtToPose(look({}))
+    expect(p).toMatchObject({ lng: 139, lat: 35, height: 1000, pitch: -90 })
+  })
+  it('tilt=90 / heading=0 はカメラが注視点の南側・同高度', () => {
+    const p = lookAtToPose(look({ tilt: 90, range: 1105.4 }))
+    expect(p.height).toBeCloseTo(0, 6)
+    expect(p.pitch).toBe(0)
+    expect(p.lat).toBeCloseTo(35 - 0.01, 6)
+    expect(p.lng).toBeCloseTo(139, 9)
+  })
+  it('heading=90（東向き）ならカメラは西側', () => {
+    const p = lookAtToPose(look({ tilt: 90, heading: 90, range: 1000 }))
+    expect(p.lng).toBeLessThan(139)
+    expect(p.lat).toBeCloseTo(35, 6)
+  })
+  it('altitudeMode=absolute は注視点高度を足し、clampToGround は無視', () => {
+    expect(lookAtToPose(look({ altitude: 50, altitudeMode: 'absolute' })).height).toBe(1050)
+    expect(lookAtToPose(look({ altitude: 50 })).height).toBe(1000)
+  })
+  it('Camera は位置をそのまま使い tilt を pitch へ', () => {
+    const p = cameraToPose({
+      longitude: 1, latitude: 2, altitude: 300, heading: 45, tilt: 60, roll: 5, altitudeMode: 'absolute',
+    })
+    expect(p).toEqual({ lng: 1, lat: 2, height: 300, heading: 45, pitch: -30, roll: 5 })
+  })
+  it('文書内の最初の視点を深さ優先で探す', () => {
+    const doc = parseKml(`<kml><Document><Folder><Placemark><name>a</name></Placemark>
+      <Placemark><LookAt><longitude>1</longitude><latitude>2</latitude><range>10</range></LookAt>
+      <Point><coordinates>1,2</coordinates></Point></Placemark></Folder></Document></kml>`)
+    expect(findInitialView(doc)).toMatchObject({ kind: 'LookAt', longitude: 1, range: 10 })
+    expect(findInitialView(parseKml('<kml><Document/></kml>'))).toBeUndefined()
+  })
+})
+
+describe('viewToCenterZoom (MapLibre)', () => {
+  const look = { kind: 'LookAt' as const, longitude: 139, latitude: 35, altitude: 0, heading: 90, tilt: 60, range: 500, altitudeMode: 'clampToGround' as const }
+  it('LookAt は注視点を中心に、heading→bearing・tilt→pitch', () => {
+    const v = viewToCenterZoom(look, 800)
+    expect(v.center).toEqual([139, 35])
+    expect(v.bearing).toBe(90)
+    expect(v.pitch).toBe(60)
+  })
+  it('range が 2 倍になると zoom は 1 小さくなる', () => {
+    const a = viewToCenterZoom(look, 800).zoom
+    const b = viewToCenterZoom({ ...look, range: 1000 }, 800).zoom
+    expect(a - b).toBeCloseTo(1, 6)
+  })
+  it('pitch は maxPitch を超えない', () => {
+    expect(viewToCenterZoom({ ...look, tilt: 90 }, 800, 85).pitch).toBe(85)
+  })
+  it('Camera は視線が地面に当たる点を中心にする（北向き・tilt=45・高度 1000m なら北へ約 1000m）', () => {
+    const v = viewToCenterZoom(
+      { kind: 'Camera', longitude: 139, latitude: 35, altitude: 1000, heading: 0, tilt: 45, roll: 0, altitudeMode: 'absolute' },
+      800,
+    )
+    expect(v.center[0]).toBeCloseTo(139, 9)
+    expect(v.center[1]).toBeCloseTo(35 + 1000 / 110540, 6)
+    expect(v.bearing).toBe(0)
   })
 })

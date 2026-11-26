@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
+import { findInitialView } from '../kml/camera'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -377,6 +378,39 @@ export default function CesiumView({ visible }: Props) {
 
       // kmlStore の文書を購読して描画する。Cesium は KmlDataSource（NetworkLink 等を含む
       // 完全実装）に原本ファイルを渡す。共通の文書モデルは保存と他エンジンの描画に使う
+      // 文書に LookAt / Camera があればその視点へ、無ければデータ範囲へ飛ぶ。
+      // KML の tilt は 0=真下、Cesium の pitch は -90=真下なので tilt - 90。
+      // LookAt は HeadingPitchRange（注視点 + 距離）にそのまま対応する
+      const flyToKml = async (id: string) => {
+        const ds = sourcesRef.current.get(id)
+        const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
+        const view = doc && findInitialView(doc)
+        const Cesium = await import('cesium')
+        const rad = Cesium.Math.toRadians
+        const alt = (v: { altitude: number; altitudeMode: string }) =>
+          v.altitudeMode === 'clampToGround' ? 0 : v.altitude
+        if (view?.kind === 'LookAt') {
+          viewer.camera.flyToBoundingSphere(
+            new Cesium.BoundingSphere(Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, alt(view)), 0),
+            {
+              offset: new Cesium.HeadingPitchRange(rad(view.heading), rad(Math.min(Math.max(view.tilt, 0), 90) - 90), view.range),
+              duration: 3,
+            },
+          )
+        } else if (view?.kind === 'Camera') {
+          viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, alt(view)),
+            orientation: {
+              heading: rad(view.heading),
+              pitch: rad(Math.min(Math.max(view.tilt, 0), 180) - 90),
+              roll: rad(view.roll),
+            },
+            duration: 3,
+          })
+        } else if (ds) {
+          void viewer.flyTo(ds)
+        }
+      }
       const loading = new Set<string>()
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
@@ -395,7 +429,7 @@ export default function CesiumView({ visible }: Props) {
               })
               await viewer.dataSources.add(ds)
               sourcesRef.current.set(e.id, ds)
-              if (visibleRef.current) void viewer.flyTo(ds)
+              if (visibleRef.current) void flyToKml(e.id)
             } catch (err: unknown) {
               console.error('[Cesium] KML load failed:', err instanceof Error ? err.message : err)
             } finally {
@@ -412,10 +446,7 @@ export default function CesiumView({ visible }: Props) {
       }
       useKmlStore.subscribe(syncKml)
       syncKml()
-      useKmlStore.getState().registerFlyer('3d-cesium', (id) => {
-        const source = sourcesRef.current.get(id)
-        if (source) void viewer.flyTo(source)
-      })
+      useKmlStore.getState().registerFlyer('3d-cesium', (id) => void flyToKml(id))
       setInitState('ready')
     }
 

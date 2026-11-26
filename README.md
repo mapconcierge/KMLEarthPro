@@ -46,7 +46,7 @@ pnpm build
 src/
   components/     UI コンポーネント（地図ビュー、サイドバー、ステータスバー）
   kml/            KML 文書モデル・パーサー・KMZ・シリアライザ（Phase 1 範囲）
-  adapters/       MapLibre アダプター（Navara / Cesium 用は実装予定）
+  adapters/       MapLibre / Navara アダプター（Cesium は同梱 KmlDataSource を使用）
   workers/        Web Workers（XML解析・地形計算）（実装予定）
 docs/
   kml-conformance.csv    KML 2.3 機能対応表
@@ -58,7 +58,7 @@ docs/
 | 段階 | 内容 | 状態 |
 |------|------|------|
 | Phase 0 | 基盤構築・GitHub Pages 配信・Navara 実証 | 🚧 進行中 |
-| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre 表示・KML/KMZ 保存まで。Navara 未対応） |
+| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre/Navara 表示・KML/KMZ 保存まで） |
 | Phase 2 | NetworkLink・Update・Region・時間 | 未着手 |
 | Phase 3 | PhotoOverlay・Model・Tour・KML 2.3 全仕様 | 未着手 |
 | Phase 4 | Earth Pro 製品機能・歴代機能 | 未着手 |

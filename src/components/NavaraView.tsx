@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
+import { addKmlToNavara, flyToNavaraBounds, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './NavaraView.css'
 
@@ -46,6 +49,7 @@ export default function NavaraView({ visible }: Props) {
   const initStartedRef = useRef(false)
   const [initState, setInitState] = useState<InitState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     // Navara の worker pool はページ内で一度しか初期化できないため、
@@ -143,6 +147,35 @@ export default function NavaraView({ visible }: Props) {
         )
       })
 
+      // kmlStore の文書を購読して描画する（エンジン切替で Navara が後から初期化されても
+      // 読み込み済みの KML がここで描かれる）
+      const rendered: Record<string, NavaraKml> = {}
+      const syncKml = () => {
+        const entries = useKmlStore.getState().entries
+        for (const e of entries) {
+          if (!e.doc || e.id in rendered) continue
+          try {
+            const k = addKmlToNavara(view, e.doc)
+            rendered[e.id] = k
+            if (k.bounds) flyToNavaraBounds(view, k.bounds, FLY_DURATION_MS / 2)
+          } catch (err: unknown) {
+            console.error('[Navara] KML render failed:', err instanceof Error ? err.message : err)
+          }
+        }
+        for (const id of Object.keys(rendered)) {
+          if (!entries.some((e) => e.id === id)) {
+            removeKmlFromNavara(view, rendered[id])
+            delete rendered[id]
+          }
+        }
+      }
+      useKmlStore.subscribe(syncKml)
+      syncKml()
+      useKmlStore.getState().registerFlyer('3d-navara', (id) => {
+        const b = rendered[id]?.bounds
+        if (b) flyToNavaraBounds(view, b, FLY_DURATION_MS / 2)
+      })
+
       setInitState('ready')
     }
 
@@ -155,7 +188,21 @@ export default function NavaraView({ visible }: Props) {
   }, [visible])
 
   return (
-    <div ref={containerRef} className={`navara-view ${visible ? '' : 'navara-hidden'}`}>
+    <div
+      ref={containerRef}
+      className={`navara-view ${visible ? '' : 'navara-hidden'}`}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        for (const f of Array.from(e.dataTransfer.files)) if (KML_PATTERN.test(f.name)) void ingestKmlFile(f)
+      }}
+    >
+      {dragging && <div className="navara-drophint">KML / KMZ をドロップして読み込み</div>}
       {initState === 'loading' && (
         <div className="navara-overlay">
           <span className="navara-spinner" />

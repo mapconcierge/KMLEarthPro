@@ -2,11 +2,13 @@ import type ThreeView from '@navaramap/three'
 import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } from '@navaramap/three'
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
+import { KML_ICON_BASE_PX } from '../kml/style'
 import type { KmlDocument } from '../kml/types'
 
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
 // FeatureEvaluator でフィーチャのプロパティから当てる（2D と同じ変換結果を共有）。
-// 制限: アイコン画像は未描画（点は円）。高度・extrude は未反映（地表に貼る）。
+// アイコン画像は billboard（FeatureEvaluator の image でフィーチャごとに指定）。取れない/無い点は円。
+// 制限: hotSpot 未対応（中心基準）、高度・extrude は未反映（地表に貼る）。
 // ラベル(name): 原因調査の結果、text レイヤーは font 未指定だと一切描画されない（Navara 0.1.1）。Google Fonts の
 // CSS から unicode-range 分割の FontFamily を作って登録し、使う文字を含む face だけ取得させる。
 const FONT_FAMILY = 'KmlLabelFont'
@@ -34,10 +36,14 @@ export interface NavaraKml {
 const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
 const numv = (v: unknown, d: number) => (typeof v === 'number' ? v : d)
 
-export async function addKmlToNavara(view: View, doc: KmlDocument): Promise<NavaraKml> {
+export async function addKmlToNavara(
+  view: View,
+  doc: KmlDocument,
+  resources?: Record<string, string>,
+): Promise<NavaraKml> {
   // フォント取得に失敗してもラベルが出ないだけで、点・線・面は描く
   await ensureFont(view).catch((e: unknown) => console.warn('[Navara] font load failed:', e))
-  const fc = kmlToGeoJson(doc)
+  const fc = kmlToGeoJson(doc, resources)
   const source = view.addSource({ type: 'geojson', data: fc })
   const layer = view.addLayer({
     type: 'vector',
@@ -58,6 +64,8 @@ export async function addKmlToNavara(view: View, doc: KmlDocument): Promise<Nava
       outlineWidth: 4,
       opacity: 1,
     },
+    // アイコン付きの点は billboard で描く（url は評価で上書き。円の point は評価で隠す）
+    billboard: { clampToGround: true, sizeInMeters: false, depthTest: false, size: KML_ICON_BASE_PX, declutter: false, transparent: true },
     point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
   })
 
@@ -69,9 +77,17 @@ export async function addKmlToNavara(view: View, doc: KmlDocument): Promise<Nava
           return { color: new Color().setStyle(str(props.fillColor, '#ffffff')), opacity: numv(props.fillOpacity, 1) }
         case 'polyline':
           return { color: new Color().setStyle(str(props.lineColor, '#ffffff')), opacity: numv(props.lineOpacity, 1), width: numv(props.lineWidth, 1) }
-        case 'point':
-        case 'billboard':
-          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')) }
+        case 'point': {
+          // アイコン画像のある点は billboard 側で描くので円は隠す
+          const hasIcon = str(props.iconHref, '') !== ''
+          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')), show: !hasIcon }
+        }
+        case 'billboard': {
+          const href = str(props.iconHref, '')
+          return href
+            ? { show: true, image: href, size: KML_ICON_BASE_PX * numv(props.iconScale, 1) }
+            : { show: false }
+        }
         case 'text':
           return { text: str(props.name, ''), opacity: 1, show: str(props.name, '') !== '' }
         default:

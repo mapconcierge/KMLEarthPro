@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
 import { serializeKml } from './serialize'
-import { resolveStyle } from './style'
+import { resolveIconHref, resolveStyle } from './style'
 import type { Folder, Placemark } from './types'
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -75,5 +75,21 @@ describe('parseKml', () => {
     expect(again.root).toEqual(doc.root)
     expect(again.styles).toEqual(doc.styles)
     expect(again.styleMaps).toEqual(doc.styleMaps)
+  })
+})
+
+describe('resolveIconHref', () => {
+  const res = { 'files/a b.png': 'blob:x/1' }
+  it('絶対 URL はそのまま', () => {
+    expect(resolveIconHref('https://e.com/i.png', res)).toBe('https://e.com/i.png')
+    expect(resolveIconHref('data:image/png;base64,AA', undefined)).toBe('data:image/png;base64,AA')
+  })
+  it('KMZ 同梱は相対パスで引く（./ 付き・%エンコードも可）', () => {
+    expect(resolveIconHref('files/a b.png', res)).toBe('blob:x/1')
+    expect(resolveIconHref('./files/a%20b.png', res)).toBe('blob:x/1')
+  })
+  it('解決できなければ undefined', () => {
+    expect(resolveIconHref('missing.png', res)).toBeUndefined()
+    expect(resolveIconHref(undefined, res)).toBeUndefined()
   })
 })

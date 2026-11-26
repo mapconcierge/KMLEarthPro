@@ -157,7 +157,7 @@ export default function NavaraView({ visible }: Props) {
           if (!e.doc || e.id in rendered) continue
           // 非同期（フォント取得）の間に重複登録されないよう先に印を付ける
           rendered[e.id] = pending
-          void addKmlToNavara(view, e.doc)
+          void addKmlToNavara(view, e.doc, e.resources)
             .then((k) => {
               if (!useKmlStore.getState().entries.some((x) => x.id === e.id)) {
                 removeKmlFromNavara(view, k)

@@ -90,10 +90,20 @@ export default function MapView() {
       const entries = useKmlStore.getState().entries
       for (const e of entries) {
         if (e.doc && !(e.id in rendered)) {
-          const fc = addKmlToMap(map, e.id, e.doc)
-          const bounds = geoJsonBounds(fc)
-          rendered[e.id] = bounds
-          if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 1500 })
+          // アイコン読み込み中の重複登録を防ぐため先に印を付ける
+          rendered[e.id] = undefined
+          const entryId = e.id
+          void addKmlToMap(map, entryId, e.doc, e.resources).then((fc) => {
+            // 読み込み中に削除されていたら後始末する
+            if (!useKmlStore.getState().entries.some((x) => x.id === entryId)) {
+              removeKmlFromMap(map, entryId)
+              delete rendered[entryId]
+              return
+            }
+            const bounds = geoJsonBounds(fc)
+            rendered[entryId] = bounds
+            if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 1500 })
+          })
         }
       }
       for (const id of Object.keys(rendered)) {

@@ -1,5 +1,5 @@
 import { findInitialView } from './camera'
-import type { AbstractView, Coord, Feature, Geometry, KmlDocument, LookAt } from './types'
+import type { AbstractView, Coord, Feature, Geometry, KmlDocument, LookAt, Placemark } from './types'
 
 /** [west, south, east, north]（度）。日付変更線をまたぐ範囲は扱わない */
 export type Bounds = [west: number, south: number, east: number, north: number]
@@ -108,4 +108,39 @@ export function resolveFlyView(doc: KmlDocument, path?: FeaturePath, aspect?: nu
   if (f.view) return f.view
   const b = featureBounds(f)
   return b && { kind: 'LookAt', ...lookAtFromBounds(b, aspect) }
+}
+
+/** 'kmlPath'（'0/2/1' 形式）を FeaturePath へ。不正なら undefined */
+export function parseFeaturePath(s: unknown): FeaturePath | undefined {
+  if (typeof s !== 'string') return undefined
+  if (s === '') return []
+  const p = s.split('/').map(Number)
+  return p.every((n) => Number.isInteger(n) && n >= 0) ? p : undefined
+}
+
+/**
+ * 名前と位置から Placemark を探す（Cesium の KmlDataSource のエンティティから文書モデルへ戻す用）。
+ * 最初の座標が (lon, lat) に最も近いものを選ぶ。名前が一致するものだけが候補。許容は約 1 m
+ */
+export function findPlacemarkPath(doc: KmlDocument, name: string, lon: number, lat: number): FeaturePath | undefined {
+  let best: { path: FeaturePath; d: number } | undefined
+  const first = (g: NonNullable<Placemark['geometry']>): [number, number] | undefined => {
+    switch (g.type) {
+      case 'Point': return [g.coordinates[0], g.coordinates[1]]
+      case 'LineString': return g.coordinates[0] && [g.coordinates[0][0], g.coordinates[0][1]]
+      case 'Polygon': return g.outer[0] && [g.outer[0][0], g.outer[0][1]]
+      case 'MultiGeometry': for (const x of g.geometries) { const c = first(x); if (c) return c }
+    }
+  }
+  const walk = (f: Feature, path: FeaturePath) => {
+    if (f.kind === 'Placemark') {
+      if ((f.name ?? '') !== name || !f.geometry) return
+      const c = first(f.geometry)
+      if (!c) return
+      const d = Math.hypot(c[0] - lon, c[1] - lat)
+      if (!best || d < best.d) best = { path, d }
+    } else f.children.forEach((c, i) => walk(c, [...path, i]))
+  }
+  walk(doc.root, [])
+  return best && best.d < 1e-4 ? best.path : undefined
 }

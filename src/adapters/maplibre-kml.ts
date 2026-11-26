@@ -24,8 +24,10 @@ function toGeoJsonGeometry(g: Geometry): GjGeometry {
   }
 }
 
-function props(name: string | undefined, s: Style | undefined, resources?: Record<string, string>) {
+function props(name: string | undefined, s: Style | undefined, resources: Record<string, string> | undefined, kmlPath: string) {
   return {
+    // 地図クリックでどの Placemark かを特定するための文書内の位置（FeaturePath を '/' で連結）
+    kmlPath,
     iconHref: resolveIconHref(s?.icon?.href, resources) ?? '',
     iconScale: s?.icon?.scale ?? 1,
     // hotSpot は単位つきの生値で持ち、画像サイズが分かった後に prepareIcons が割合へ直す
@@ -47,20 +49,20 @@ function props(name: string | undefined, s: Style | undefined, resources?: Recor
 /** 文書モデルを GeoJSON へ。visibility=0 のフィーチャと、その配下は含めない */
 export function kmlToGeoJson(doc: KmlDocument, resources?: Record<string, string>): FeatureCollection {
   const features: GjFeature[] = []
-  const walk = (f: Feature) => {
+  const walk = (f: Feature, path: number[]) => {
     if (!f.visibility) return
     if (f.kind === 'Placemark') {
       if (!f.geometry) return
       features.push({
         type: 'Feature',
         geometry: toGeoJsonGeometry(f.geometry),
-        properties: props(f.name, resolveStyle(doc, f), resources),
+        properties: props(f.name, resolveStyle(doc, f), resources, path.join('/')),
       })
     } else {
-      f.children.forEach(walk)
+      f.children.forEach((c, i) => walk(c, [...path, i]))
     }
   }
-  walk(doc.root)
+  walk(doc.root, [])
   return { type: 'FeatureCollection', features }
 }
 
@@ -105,6 +107,9 @@ const LABEL_GAP_PX = 4
 const LABEL_OFFSET_EM_NO_ICON = 1.2
 
 const layerIdsByDoc = new Map<string, string[]>()
+
+/** 文書を描いているレイヤ ID（クリック判定の対象） */
+export const kmlLayerIds = (id: string) => layerIdsByDoc.get(id) ?? []
 
 /**
  * 文書を地図へ追加する（アイコン画像の読み込みを待つので非同期）。

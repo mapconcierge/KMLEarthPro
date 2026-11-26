@@ -8,9 +8,9 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { addKmlToMap, removeKmlFromMap } from '../adapters/maplibre-kml'
+import { addKmlToMap, kmlLayerIds, removeKmlFromMap } from '../adapters/maplibre-kml'
 import { resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
-import { resolveFlyView, type FeaturePath } from '../kml/target'
+import { parseFeaturePath, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -157,6 +157,26 @@ export default function MapView() {
       syncKml()
     })
     const unsubscribeKml = useKmlStore.subscribe(syncKml)
+
+    // 地図クリックで Placemark を選ぶ（サイドバーの木が追従する）。何もない所をクリックしたら選択解除
+    const kmlFeaturesAt = (point: { x: number; y: number }) => {
+      const layers = Object.keys(rendered).flatMap(kmlLayerIds).filter((l) => map.getLayer(l))
+      return layers.length ? map.queryRenderedFeatures([point.x, point.y], { layers }) : []
+    }
+    map.on('click', (e) => {
+      for (const f of kmlFeaturesAt(e.point)) {
+        const path = parseFeaturePath(f.properties?.kmlPath)
+        const id = typeof f.source === 'string' ? f.source.replace(/^kml-/, '') : ''
+        if (path && id in rendered) {
+          useKmlStore.getState().select({ id, path })
+          return
+        }
+      }
+      useKmlStore.getState().select(null)
+    })
+    map.on('mousemove', (e) => {
+      map.getCanvas().style.cursor = kmlFeaturesAt(e.point).length ? 'pointer' : ''
+    })
     useKmlStore.getState().registerFlyer('2d-maplibre', (id, path) => flyToKml(id, path, FLY_DURATION_MS / 2))
 
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で

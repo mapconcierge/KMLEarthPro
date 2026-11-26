@@ -22,8 +22,16 @@ export interface KmlEntry {
 /** path 無しは文書全体、あればそのフォルダ/Placemark へ飛ぶ */
 type Flyer = (id: string, path?: FeaturePath) => void
 
+/** 選択中の Placemark/フォルダ（サイドバーの木と地図クリックで共有） */
+export interface KmlSelection {
+  id: string
+  path: FeaturePath
+}
+
 interface KmlState {
   entries: KmlEntry[]
+  selection: KmlSelection | null
+  select: (sel: KmlSelection | null) => void
   /** エンジンごとの「KML の範囲へ寄る」関数。各ビューが初期化時に登録する */
   flyers: Partial<Record<Engine, Flyer>>
   add: (entry: KmlEntry) => void
@@ -34,11 +42,17 @@ interface KmlState {
 
 export const useKmlStore = create<KmlState>((set) => ({
   entries: [],
+  selection: null,
+  select: (selection) => set({ selection }),
   flyers: {},
   add: (entry) => set((s) => ({ entries: [...s.entries, entry] })),
   update: (id, patch) =>
     set((s) => ({ entries: s.entries.map((e) => (e.id === id ? { ...e, ...patch } : e)) })),
-  remove: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
+  remove: (id) =>
+    set((s) => ({
+      entries: s.entries.filter((e) => e.id !== id),
+      selection: s.selection?.id === id ? null : s.selection,
+    })),
   registerFlyer: (engine, fn) =>
     set((s) => ({ flyers: { ...s.flyers, [engine]: fn ?? undefined } })),
 }))

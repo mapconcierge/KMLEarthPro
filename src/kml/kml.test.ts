@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { hotSpotFraction, iconPlacement } from './icon'
-import { featureAtPath, featureBounds, lookAtFromBounds, resolveFlyView } from './target'
+import { featureAtPath, featureBounds, findPlacemarkPath, lookAtFromBounds, parseFeaturePath, resolveFlyView } from './target'
 import { cameraToPose, findInitialView, lookAtToPose, resolveAbsoluteView, viewToCenterZoom } from './camera'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
@@ -315,5 +315,28 @@ describe('target: 飛行先の決定', () => {
     expect(resolveFlyView(doc, [5])).toBeUndefined()
     const noView = parseKml('<kml><Document><Placemark><Point><coordinates>1,2</coordinates></Point></Placemark></Document></kml>')
     expect(resolveFlyView(noView)).toMatchObject({ kind: 'LookAt', longitude: 1, latitude: 2, range: 800 })
+  })
+})
+
+describe('地図クリックでの Placemark 特定', () => {
+  const doc = parseKml(`<kml><Document>
+    <Folder><Placemark><name>A</name><Point><coordinates>139.0,35.0</coordinates></Point></Placemark></Folder>
+    <Folder><Placemark><name>A</name><Point><coordinates>140.0,36.0</coordinates></Point></Placemark>
+    <Placemark><name>L</name><LineString><coordinates>1,2 3,4</coordinates></LineString></Placemark></Folder>
+  </Document></kml>`)
+  it('parseFeaturePath は不正な値を弾く', () => {
+    expect(parseFeaturePath('0/2/1')).toEqual([0, 2, 1])
+    expect(parseFeaturePath('')).toEqual([])
+    expect(parseFeaturePath('a/1')).toBeUndefined()
+    expect(parseFeaturePath(undefined)).toBeUndefined()
+  })
+  it('同名でも位置が近い方を返す', () => {
+    expect(findPlacemarkPath(doc, 'A', 140.0, 36.0)).toEqual([1, 0])
+    expect(findPlacemarkPath(doc, 'A', 139.0, 35.0)).toEqual([0, 0])
+    expect(findPlacemarkPath(doc, 'L', 1, 2)).toEqual([1, 1])
+  })
+  it('名前か位置が合わなければ undefined', () => {
+    expect(findPlacemarkPath(doc, 'X', 139.0, 35.0)).toBeUndefined()
+    expect(findPlacemarkPath(doc, 'A', 100, 10)).toBeUndefined()
   })
 })

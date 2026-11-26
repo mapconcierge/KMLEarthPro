@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { addKmlToNavara, flyToNavaraView, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
-import { resolveFlyView, type FeaturePath } from '../kml/target'
+import { parseFeaturePath, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -192,6 +192,12 @@ export default function NavaraView({ visible }: Props) {
       }
       useKmlStore.subscribe(syncKml)
       syncKml()
+      // 地図クリックで Placemark を選ぶ。プロパティの kmlPath と、レイヤ → 文書の対応で特定する
+      view.on('featureClick', (info) => {
+        const path = parseFeaturePath(info?.properties?.kmlPath)
+        const id = Object.keys(rendered).find((k) => rendered[k].parts.some((p) => p.layerId === info?.layerId))
+        useKmlStore.getState().select(path && id ? { id, path } : null)
+      })
       useKmlStore.getState().registerFlyer('3d-navara', (id, path) => {
         // 描画の準備ができていない（フォント取得中など）間は飛ばない
         if (rendered[id] && rendered[id] !== pending) flyToKml(id, path)

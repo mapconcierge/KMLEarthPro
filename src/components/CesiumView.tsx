@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { resolveAbsoluteView } from '../kml/camera'
-import { resolveFlyView, type FeaturePath } from '../kml/target'
+import { findPlacemarkPath, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -457,6 +457,31 @@ export default function CesiumView({ visible }: Props) {
       }
       useKmlStore.subscribe(syncKml)
       syncKml()
+      // 地図クリックで Placemark を選ぶ。KmlDataSource のエンティティは文書モデルと別物なので、
+      // 名前と最初の座標で文書モデルの Placemark へ戻す
+      const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas)
+      handler.setInputAction((ev: { position: import('cesium').Cartesian2 }) => {
+        const entity = (viewer.scene.pick(ev.position) as { id?: import('cesium').Entity } | undefined)?.id
+        const select = useKmlStore.getState().select
+        const ds = entity && [...sourcesRef.current].find(([, d]) => d.entities.contains(entity))
+        if (!entity || !ds) return select(null)
+        const time = viewer.clock.currentTime
+        let carto: import('cesium').Cartographic | undefined
+        const pos = entity.position?.getValue(time)
+        if (pos) carto = Cesium.Cartographic.fromCartesian(pos)
+        else {
+          const ring =
+            entity.polyline?.positions?.getValue(time) ??
+            entity.polygon?.hierarchy?.getValue(time)?.positions
+          if (ring?.[0]) carto = Cesium.Cartographic.fromCartesian(ring[0])
+        }
+        const doc = useKmlStore.getState().entries.find((x) => x.id === ds[0])?.doc
+        const path =
+          doc && carto
+            ? findPlacemarkPath(doc, entity.name ?? '', Cesium.Math.toDegrees(carto.longitude), Cesium.Math.toDegrees(carto.latitude))
+            : undefined
+        select(path ? { id: ds[0], path } : null)
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
       useKmlStore.getState().registerFlyer('3d-cesium', (id, path) => void flyToKml(id, path))
       setInitState('ready')
     }

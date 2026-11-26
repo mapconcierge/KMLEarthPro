@@ -33,6 +33,11 @@ export default function Sidebar() {
   const [favoritesOpen, setFavoritesOpen] = useState(true)
   // KML ごとのフォルダ/Placemark 一覧の開閉
   const [treeOpen, setTreeOpen] = useState<Record<string, boolean>>({})
+  // 地図クリックで選ばれた文書のツリーが閉じていれば開く
+  const selectedId = useKmlStore((s) => s.selection?.id)
+  useEffect(() => {
+    if (selectedId) setTreeOpen((t) => (t[selectedId] ? t : { ...t, [selectedId]: true }))
+  }, [selectedId])
 
   // 現在のエンジンがカメラ移動関数を登録していなければ飛べない
   // （Navara / CesiumJS は選択されるまで初期化されない）
@@ -171,7 +176,7 @@ export default function Sidebar() {
                     {e.status === 'error' && <span className="kml-state">エラー</span>}
                   </div>
                   {treeOpen[e.id] && e.doc && (
-                    <KmlTree doc={e.doc} onFly={flyToKml ? (path) => flyToKml(e.id, path) : null} />
+                    <KmlTree entryId={e.id} doc={e.doc} onFly={flyToKml ? (path) => flyToKml(e.id, path) : null} />
                   )}
                 </li>
               ))}

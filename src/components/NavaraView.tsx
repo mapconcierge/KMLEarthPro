@@ -152,7 +152,7 @@ export default function NavaraView({ visible }: Props) {
       // 地形（DEM ソース）の標高。取得できなければ undefined（呼び出し側が 0 m 扱い）
       const sampleTerrain = async (lng: number, lat: number) =>
         (await view.sampleTerrainMostDetailed(dem, [{ lat, lng }]))[0]?.height
-      const pending: NavaraKml = { source: null as never, layerId: '', bounds: undefined, view: undefined }
+      const pending: NavaraKml = { parts: [], bounds: undefined, view: undefined }
       const rendered: Record<string, NavaraKml> = {}
       const syncKml = () => {
         const entries = useKmlStore.getState().entries

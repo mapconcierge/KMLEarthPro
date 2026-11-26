@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
+import { hotSpotFraction, iconPlacement } from './icon'
 import { cameraToPose, findInitialView, lookAtToPose, resolveAbsoluteView, viewToCenterZoom } from './camera'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
@@ -200,5 +201,58 @@ describe('resolveAbsoluteView（地形標高の反映）', () => {
   it('地面標高を渡さないと、標高のある地点ではカメラが高く見積もられ zoom が小さくなる', async () => {
     const resolved = await resolveAbsoluteView({ ...look, altitudeMode: 'clampToGround' }, sample)
     expect(viewToCenterZoom(resolved, 800, 85, 0).zoom).toBeLessThan(viewToCenterZoom(resolved, 800, 85, 120).zoom)
+  })
+})
+
+describe('parse/serialize: hotSpot', () => {
+  const kml = (hs: string) => `<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Style id="s"><IconStyle>
+    <Icon><href>a.png</href></Icon>${hs}</IconStyle></Style></Document></kml>`
+  it('属性と units を読み、既定は中心(0.5,0.5 fraction)', () => {
+    const d = parseKml(kml('<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>'))
+    expect(d.styles.s.icon?.hotSpot).toEqual({ x: 20, y: 2, xunits: 'pixels', yunits: 'pixels' })
+    expect(parseKml(kml('<hotSpot/>')).styles.s.icon?.hotSpot).toEqual({ x: 0.5, y: 0.5, xunits: 'fraction', yunits: 'fraction' })
+    expect(parseKml(kml('<hotSpot x="1" xunits="bogus"/>')).styles.s.icon?.hotSpot?.xunits).toBe('fraction')
+    expect(parseKml(kml('')).styles.s.icon?.hotSpot).toBeUndefined()
+  })
+  it('往復で保持される', () => {
+    const d = parseKml(kml('<hotSpot x="0.5" y="1" xunits="fraction" yunits="insetPixels"/>'))
+    expect(parseKml(serializeKml(d)).styles.s.icon?.hotSpot).toEqual(d.styles.s.icon?.hotSpot)
+  })
+})
+
+describe('icon: hotSpotFraction / iconPlacement', () => {
+  const size = { width: 64, height: 32 }
+  it('既定は中心、fraction はそのまま', () => {
+    expect(hotSpotFraction(undefined, size)).toEqual({ fx: 0.5, fy: 0.5 })
+    expect(hotSpotFraction({ x: 0.25, y: 1, xunits: 'fraction', yunits: 'fraction' }, size)).toEqual({ fx: 0.25, fy: 1 })
+  })
+  it('pixels は左/下から、insetPixels は右/上から割合へ', () => {
+    expect(hotSpotFraction({ x: 16, y: 8, xunits: 'pixels', yunits: 'pixels' }, size)).toEqual({ fx: 0.25, fy: 0.25 })
+    expect(hotSpotFraction({ x: 16, y: 8, xunits: 'insetPixels', yunits: 'insetPixels' }, size)).toEqual({ fx: 0.75, fy: 0.75 })
+  })
+  it('中心 hotSpot はオフセット 0、下端までは表示高さの半分', () => {
+    const p = iconPlacement(size, 1, undefined)
+    expect(p.offsetX).toBeCloseTo(0)
+    expect(p.offsetY).toBeCloseTo(0)
+    expect(p.displayWidth).toBe(32)
+    expect(p.displayHeight).toBe(16)
+    expect(p.belowPx).toBe(8)
+  })
+  it('下端中央の hotSpot（ピン）は、画像中心を座標の上へ（offsetY は負）、ラベルは直下', () => {
+    const p = iconPlacement(size, 1, { x: 0.5, y: 0, xunits: 'fraction', yunits: 'fraction' })
+    expect(p.offsetY).toBeCloseTo(-16) // 自然 px で高さの半分だけ上
+    expect(p.belowPx).toBe(0)
+  })
+  it('左下 hotSpot は画像中心を座標の右上へ', () => {
+    const p = iconPlacement(size, 1, { x: 0, y: 0, xunits: 'fraction', yunits: 'fraction' })
+    expect(p.offsetX).toBeCloseTo(32)
+    expect(p.offsetY).toBeCloseTo(-16)
+  })
+  it('scale は表示サイズと倍率に効き、オフセット（自然 px）は変わらない', () => {
+    const a = iconPlacement(size, 1, undefined)
+    const b = iconPlacement(size, 2, { x: 0.5, y: 0, xunits: 'fraction', yunits: 'fraction' })
+    expect(b.displayWidth).toBe(64)
+    expect(b.sizeRatio).toBeCloseTo(a.sizeRatio * 2)
+    expect(b.offsetY).toBeCloseTo(-16)
   })
 })

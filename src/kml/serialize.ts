@@ -11,7 +11,7 @@ function style(s: Style, ind: string): string {
   const parts: string[] = []
   if (s.icon)
     parts.push(
-      `<IconStyle>${s.icon.color ? tag('color', formatKmlColor(s.icon.color)) : ''}${tag('scale', s.icon.scale)}${s.icon.href ? `<Icon>${tag('href', s.icon.href)}</Icon>` : ''}</IconStyle>`,
+      `<IconStyle>${s.icon.color ? tag('color', formatKmlColor(s.icon.color)) : ''}${tag('scale', s.icon.scale)}${s.icon.href ? `<Icon>${tag('href', s.icon.href)}</Icon>` : ''}${s.icon.hotSpot ? `<hotSpot x="${s.icon.hotSpot.x}" y="${s.icon.hotSpot.y}" xunits="${s.icon.hotSpot.xunits}" yunits="${s.icon.hotSpot.yunits}"/>` : ''}</IconStyle>`,
     )
   if (s.label)
     parts.push(

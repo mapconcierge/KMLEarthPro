@@ -38,9 +38,18 @@ export interface KmlColor {
   opacity: number
 }
 
+/** IconStyle の hotSpot（アイコンのうち座標に合わせる点）。units は KML の fraction / pixels / insetPixels */
+export type HotSpotUnits = 'fraction' | 'pixels' | 'insetPixels'
+export interface HotSpot {
+  x: number
+  y: number
+  xunits: HotSpotUnits
+  yunits: HotSpotUnits
+}
+
 export interface Style {
   id?: string
-  icon?: { href?: string; scale?: number; color?: KmlColor }
+  icon?: { href?: string; scale?: number; color?: KmlColor; hotSpot?: HotSpot }
   label?: { scale?: number; color?: KmlColor }
   line?: { color?: KmlColor; width?: number }
   poly?: { color?: KmlColor; fill?: boolean; outline?: boolean }

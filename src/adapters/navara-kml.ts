@@ -1,7 +1,9 @@
 import type ThreeView from '@navaramap/three'
 import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } from '@navaramap/three'
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
+import type { FeatureCollection } from 'geojson'
 import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
+import { prepareIcons } from './kml-icons'
 import { KML_ICON_BASE_PX } from '../kml/style'
 import { findInitialView, resolveAbsoluteView, type ElevationSampler } from '../kml/camera'
 import type { AbstractView, KmlDocument } from '../kml/types'
@@ -27,14 +29,27 @@ async function ensureFont(view: View): Promise<void> {
 
 type View = ThreeView<DefaultDescriptions>
 
-export interface NavaraKml {
+/** 1 つの GeoJSON ソースと、それを描く vector レイヤ */
+interface NavaraPart {
   source: Source
   layerId: string
+}
+
+export interface NavaraKml {
+  /** 通常のフィーチャ用 1 つ + アイコン配置（hotSpot）グループごとに 1 つ */
+  parts: NavaraPart[]
   /** [west, south, east, north] */
   bounds: [number, number, number, number] | undefined
   /** 文書の LookAt / Camera。あれば範囲より優先して飛ぶ */
   view: AbstractView | undefined
 }
+
+const LABEL_SIZE_PX = 18
+const LABEL_GAP_PX = 3
+const POINT_RADIUS_PX = 6
+// lineHeight=1 のとき、空行 1 行が占める高さ ÷ size。Noto Sans JP で size=18 のときの実測から較正した値
+// （Navara 0.1.1 の行高は font の行間を含むため size より大きい）。フォントを変えたら測り直すこと
+const LINE_HEIGHT_PX_PER_SIZE = 2.17
 
 const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
 const numv = (v: unknown, d: number) => (typeof v === 'number' ? v : d)
@@ -47,30 +62,69 @@ export async function addKmlToNavara(
   // フォント取得に失敗してもラベルが出ないだけで、点・線・面は描く
   await ensureFont(view).catch((e: unknown) => console.warn('[Navara] font load failed:', e))
   const fc = kmlToGeoJson(doc, resources)
-  const source = view.addSource({ type: 'geojson', data: fc })
-  const layer = view.addLayer({
-    type: 'vector',
-    source,
+  const groups = await prepareIcons(fc)
+
+  // Navara の billboard / text の center（アンカー）はレイヤ単位で、フィーチャごとには変えられない。
+  // そこで、hotSpot とラベル位置が同じアイコン点（iconGroup）ごとにソースとレイヤを分ける。
+  const featuresOf = (pred: (group: string | undefined) => boolean): FeatureCollection => ({
+    type: 'FeatureCollection',
+    features: fc.features.filter((f) => pred((f.properties as { iconGroup?: string }).iconGroup)),
+  })
+  const parts: NavaraPart[] = []
+  const addPart = (data: FeatureCollection, materials: Record<string, unknown>) => {
+    const source = view.addSource({ type: 'geojson', data })
+    const layer = view.addLayer({ type: 'vector', source, ...materials } as never)
+    layer.on('featureCreated', ({ evaluator }) => style(evaluator))
+    parts.push({ source, layerId: layer.id })
+  }
+  const textBase = {
+    font: FONT_FAMILY,
+    lang: 'ja',
+    clampToGround: true,
+    depthTest: false,
+    sizeInMeters: false,
+    size: LABEL_SIZE_PX,
+    declutter: false,
+    color: new Color().setStyle('#ffffff'),
+    outlineColor: new Color().setStyle('#000000'),
+    outlineOpacity: 1,
+    outlineWidth: 4,
+    opacity: 1,
+  }
+  // text の center は 0..1（0.5,0.5 が中央。billboard の -0.5..0.5 とは基準が違う）。
+  // y は 1 を超えても効かない（飽和する）ため、アイコン分だけ下げる手段が center では取れない。
+  // そこで y=1（テキスト上端を座標に合わせ、座標の真下に垂れる）にしたうえで、ラベルの先頭に
+  // 空行を 1 行入れ、lineHeight（行高の倍率）で空行の高さ = アイコン下端までの距離 + すき間にする。
+  const labelMaterial = (belowPx: number) => ({
+    ...textBase,
+    center: { x: 0.5, y: 1 },
+    lineHeight: Math.max(belowPx, 1) / (LABEL_SIZE_PX * LINE_HEIGHT_PX_PER_SIZE),
+  })
+
+  // 通常のフィーチャ（面・線・アイコン無しの点）。ラベルは円の直下
+  addPart(featuresOf((g) => g === undefined), {
     polygon: { clampToGround: true, transparent: true, outline: false },
     polyline: { clampToGround: true, transparent: true, width: 2 },
-    text: {
-      font: FONT_FAMILY,
-      lang: 'ja',
-      clampToGround: true,
-      depthTest: false,
-      sizeInMeters: false,
-      size: 18,
-      declutter: false,
-      color: new Color().setStyle('#ffffff'),
-      outlineColor: new Color().setStyle('#000000'),
-      outlineOpacity: 1,
-      outlineWidth: 4,
-      opacity: 1,
-    },
-    // アイコン付きの点は billboard で描く（url は評価で上書き。円の point は評価で隠す）
-    billboard: { clampToGround: true, sizeInMeters: false, depthTest: false, size: KML_ICON_BASE_PX, declutter: false, transparent: true },
     point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
+    text: labelMaterial(POINT_RADIUS_PX + LABEL_GAP_PX),
   })
+  // アイコン付きの点（グループごと）
+  for (const g of groups.values()) {
+    addPart(featuresOf((k) => k === g.key), {
+      billboard: {
+        clampToGround: true,
+        sizeInMeters: false,
+        depthTest: false,
+        size: KML_ICON_BASE_PX,
+        declutter: false,
+        transparent: true,
+        center: { x: g.anchorX, y: g.anchorY },
+      },
+      // 同じ点は円（point）も生成されるが、評価で隠す。ラベルはアイコン下端の直下
+      point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
+      text: labelMaterial(g.belowPx + LABEL_GAP_PX),
+    })
+  }
 
   const style = (e: FeatureEvaluator) =>
     e.evaluate(({ properties: p, meshGeomType }) => {
@@ -88,25 +142,31 @@ export async function addKmlToNavara(
         case 'billboard': {
           const href = str(props.iconHref, '')
           return href
-            ? { show: true, image: href, size: KML_ICON_BASE_PX * numv(props.iconScale, 1) }
+            // Navara の billboard の size は「高さ」（幅は画像の縦横比で決まる）。MapLibre と大きさを揃える
+            ? { show: true, image: href, size: numv(props.iconDisplayHeight, KML_ICON_BASE_PX * numv(props.iconScale, 1)) }
             : { show: false }
         }
-        case 'text':
-          return { text: str(props.name, ''), opacity: 1, show: str(props.name, '') !== '' }
+        case 'text': {
+          // 先頭の空行で、座標（hotSpot）より下へずらす（labelMaterial のコメント参照）。
+          // 名前の改行は、空行の高さ調整が崩れないよう空白にする
+          const name = str(props.name, '').replace(/\s*[\r\n]+\s*/g, ' ')
+          return { text: name === '' ? '' : `\n${name}`, opacity: 1, show: name !== '' }
+        }
         default:
           return {}
       }
     })
-  layer.on('featureCreated', ({ evaluator }) => style(evaluator))
 
   const b = geoJsonBounds(fc) as [[number, number], [number, number]] | undefined
-  return { source, layerId: layer.id, view: findInitialView(doc), bounds: b ? [b[0][0], b[0][1], b[1][0], b[1][1]] : undefined }
+  return { parts, view: findInitialView(doc), bounds: b ? [b[0][0], b[0][1], b[1][0], b[1][1]] : undefined }
 }
 
 export function removeKmlFromNavara(view: View, k: NavaraKml): void {
   // レイヤーが参照している間はソースを消せないので順序を守る
-  view.deleteLayerById(k.layerId)
-  k.source.delete()
+  for (const part of k.parts) {
+    view.deleteLayerById(part.layerId)
+    part.source.delete()
+  }
 }
 
 /**

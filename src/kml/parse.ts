@@ -6,6 +6,7 @@ import type {
   Feature,
   Folder,
   Geometry,
+  HotSpot,
   KmlDocument,
   Placemark,
   Style,
@@ -114,6 +115,21 @@ function parseGeometry(el: Element, warnings: string[]): Geometry | undefined {
   }
 }
 
+const UNITS = ['fraction', 'pixels', 'insetPixels'] as const
+/** <hotSpot x= y= xunits= yunits=/>。属性が無い/不正な場合は KML の既定（0.5, 0.5 fraction = 中心）になる */
+function parseHotSpot(el: Element | undefined): HotSpot | undefined {
+  if (!el) return undefined
+  const n = (a: string, d: number) => {
+    const v = el.getAttribute(a)
+    return v !== null && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : d
+  }
+  const u = (a: string) => {
+    const v = el.getAttribute(a)
+    return (UNITS as readonly string[]).includes(v ?? '') ? (v as HotSpot['xunits']) : 'fraction'
+  }
+  return { x: n('x', 0.5), y: n('y', 0.5), xunits: u('xunits'), yunits: u('yunits') }
+}
+
 function parseStyle(el: Element): Style {
   const style: Style = { id: el.getAttribute('id') ?? undefined }
   const icon = child(el, 'IconStyle')
@@ -122,6 +138,7 @@ function parseStyle(el: Element): Style {
       href: text(child(icon, 'Icon') ?? icon, 'href'),
       scale: text(icon, 'scale') ? num(icon, 'scale', 1) : undefined,
       color: parseKmlColor(text(icon, 'color')),
+      hotSpot: parseHotSpot(child(icon, 'hotSpot')),
     }
   }
   const label = child(el, 'LabelStyle')

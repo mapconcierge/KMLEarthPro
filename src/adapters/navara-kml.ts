@@ -1,5 +1,5 @@
 import type ThreeView from '@navaramap/three'
-import { Color, type FeatureEvaluator, type Source } from '@navaramap/three'
+import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } from '@navaramap/three'
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
 import type { KmlDocument } from '../kml/types'
@@ -7,7 +7,20 @@ import type { KmlDocument } from '../kml/types'
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
 // FeatureEvaluator でフィーチャのプロパティから当てる（2D と同じ変換結果を共有）。
 // 制限: アイコン画像は未描画（点は円）。高度・extrude は未反映（地表に貼る）。
-// ラベル(name)は未対応: text 設定を与えても text メッシュが生成されなかった（Navara 0.1.1、要調査）。
+// ラベル(name): 原因調査の結果、text レイヤーは font 未指定だと一切描画されない（Navara 0.1.1）。Google Fonts の
+// CSS から unicode-range 分割の FontFamily を作って登録し、使う文字を含む face だけ取得させる。
+const FONT_FAMILY = 'KmlLabelFont'
+const FONT_CSS = 'https://fonts.googleapis.com/css2?family=Noto+Sans&family=Noto+Sans+JP'
+const fontReady = new WeakMap<object, Promise<void>>()
+
+async function ensureFont(view: View): Promise<void> {
+  let p = fontReady.get(view)
+  if (!p) {
+    p = fetchFontFamilyFromCss(FONT_FAMILY, FONT_CSS).then((f) => void view.addFontFamily(f))
+    fontReady.set(view, p)
+  }
+  return p
+}
 
 type View = ThreeView<DefaultDescriptions>
 
@@ -21,7 +34,9 @@ export interface NavaraKml {
 const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
 const numv = (v: unknown, d: number) => (typeof v === 'number' ? v : d)
 
-export function addKmlToNavara(view: View, doc: KmlDocument): NavaraKml {
+export async function addKmlToNavara(view: View, doc: KmlDocument): Promise<NavaraKml> {
+  // フォント取得に失敗してもラベルが出ないだけで、点・線・面は描く
+  await ensureFont(view).catch((e: unknown) => console.warn('[Navara] font load failed:', e))
   const fc = kmlToGeoJson(doc)
   const source = view.addSource({ type: 'geojson', data: fc })
   const layer = view.addLayer({
@@ -29,6 +44,20 @@ export function addKmlToNavara(view: View, doc: KmlDocument): NavaraKml {
     source,
     polygon: { clampToGround: true, transparent: true, outline: false },
     polyline: { clampToGround: true, transparent: true, width: 2 },
+    text: {
+      font: FONT_FAMILY,
+      lang: 'ja',
+      clampToGround: true,
+      depthTest: false,
+      sizeInMeters: false,
+      size: 18,
+      declutter: false,
+      color: new Color().setStyle('#ffffff'),
+      outlineColor: new Color().setStyle('#000000'),
+      outlineOpacity: 1,
+      outlineWidth: 4,
+      opacity: 1,
+    },
     point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
   })
 
@@ -43,6 +72,8 @@ export function addKmlToNavara(view: View, doc: KmlDocument): NavaraKml {
         case 'point':
         case 'billboard':
           return { color: new Color().setStyle(str(props.pointColor, '#ffd400')) }
+        case 'text':
+          return { text: str(props.name, ''), opacity: 1, show: str(props.name, '') !== '' }
         default:
           return {}
       }

@@ -149,21 +149,31 @@ export default function NavaraView({ visible }: Props) {
 
       // kmlStore の文書を購読して描画する（エンジン切替で Navara が後から初期化されても
       // 読み込み済みの KML がここで描かれる）
+      const pending: NavaraKml = { source: null as never, layerId: '', bounds: undefined }
       const rendered: Record<string, NavaraKml> = {}
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
         for (const e of entries) {
           if (!e.doc || e.id in rendered) continue
-          try {
-            const k = addKmlToNavara(view, e.doc)
-            rendered[e.id] = k
-            if (k.bounds) flyToNavaraBounds(view, k.bounds, FLY_DURATION_MS / 2)
-          } catch (err: unknown) {
-            console.error('[Navara] KML render failed:', err instanceof Error ? err.message : err)
-          }
+          // 非同期（フォント取得）の間に重複登録されないよう先に印を付ける
+          rendered[e.id] = pending
+          void addKmlToNavara(view, e.doc)
+            .then((k) => {
+              if (!useKmlStore.getState().entries.some((x) => x.id === e.id)) {
+                removeKmlFromNavara(view, k)
+                delete rendered[e.id]
+                return
+              }
+              rendered[e.id] = k
+              if (k.bounds) flyToNavaraBounds(view, k.bounds, FLY_DURATION_MS / 2)
+            })
+            .catch((err: unknown) => {
+              delete rendered[e.id]
+              console.error('[Navara] KML render failed:', err instanceof Error ? err.message : err)
+            })
         }
         for (const id of Object.keys(rendered)) {
-          if (!entries.some((e) => e.id === id)) {
+          if (!entries.some((e) => e.id === id) && rendered[id] !== pending) {
             removeKmlFromNavara(view, rendered[id])
             delete rendered[id]
           }

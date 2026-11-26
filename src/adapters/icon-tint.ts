@@ -2,6 +2,8 @@
 // データ駆動で持てないので、乗算済みの画像を canvas で作って data URL として使う。
 // CORS で画像が読めない（canvas が汚染される）場合は null を返し、呼び出し側は元画像のまま描く。
 
+import { upgradeInsecureUrl } from '../kml/style'
+
 const cache = new Map<string, Promise<string | null>>()
 
 /** 色（#rrggbb）が白で不透明なら乗算しても変わらないので着色不要 */
@@ -45,7 +47,7 @@ export function tintIcon(href: string, hex: string, opacity: number): Promise<st
         }
       }
       img.onerror = () => resolve(null)
-      img.src = href
+      img.src = upgradeInsecureUrl(href, globalThis.location?.protocol)
     })
     cache.set(key, p)
   }

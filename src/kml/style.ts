@@ -32,3 +32,12 @@ export function resolveIconHref(
 
 /** KML 既定のアイコン寸法（px）。scale=1 でこの大きさに描く */
 export const KML_ICON_BASE_PX = 32
+
+/**
+ * https のページから http の画像を fetch すると混在コンテンツとして遮断される
+ * （<img> はブラウザが https へ自動で引き上げるので表示できる）。MapLibre の loadImage は fetch なので、
+ * ページが https のときは http の URL を https へ直してから取得する。http のページや他のスキームはそのまま
+ */
+export function upgradeInsecureUrl(href: string, pageProtocol: string | undefined): string {
+  return pageProtocol === 'https:' && /^http:\/\//i.test(href) ? href.replace(/^http:/i, 'https:') : href
+}

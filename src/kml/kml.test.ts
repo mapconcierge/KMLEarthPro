@@ -366,3 +366,13 @@ describe('IconStyle / LabelStyle のパース', () => {
     expect(d.styles.s.icon?.color?.hex).toBe('#00ff00')
   })
 })
+
+describe('upgradeInsecureUrl', async () => {
+  const { upgradeInsecureUrl } = await import('./style')
+  it('https のページでだけ http を https へ直す', () => {
+    expect(upgradeInsecureUrl('http://maps.google.com/a.png', 'https:')).toBe('https://maps.google.com/a.png')
+    expect(upgradeInsecureUrl('http://maps.google.com/a.png', 'http:')).toBe('http://maps.google.com/a.png')
+    expect(upgradeInsecureUrl('data:image/png;base64,xx', 'https:')).toBe('data:image/png;base64,xx')
+    expect(upgradeInsecureUrl('blob:http://x/1', 'https:')).toBe('blob:http://x/1')
+  })
+})

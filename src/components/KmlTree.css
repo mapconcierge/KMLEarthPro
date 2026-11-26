@@ -3,6 +3,14 @@
   font-size: 0.76rem;
   margin: 2px 0 4px;
 }
+/* KML ファイル名の行より 1 文字分右へ寄せて、ファイル → 地物の階層が分かるようにする */
+.kml-entry > .kml-tree {
+  margin-left: 1em;
+}
+/* Placemark には開閉の caret が無いので、その幅だけ空けて同じ階層のフォルダ名と文字位置を揃える */
+.kml-tree-item > .kml-tree-label {
+  margin-left: 18px;
+}
 .kml-tree-nested {
   margin: 0 0 0 12px;
   padding-left: 6px;

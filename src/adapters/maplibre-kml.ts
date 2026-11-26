@@ -1,6 +1,6 @@
 import type { FeatureCollection, Feature as GjFeature, Geometry as GjGeometry } from 'geojson'
 import type { FilterSpecification, Map as MlMap } from 'maplibre-gl'
-import { resolveIconHref, resolveStyle } from '../kml/style'
+import { resolveIconHref, resolveStyle, upgradeInsecureUrl } from '../kml/style'
 import { prepareIcons } from './kml-icons'
 import type { Feature, Geometry, KmlDocument, Style } from '../kml/types'
 
@@ -105,7 +105,8 @@ function loadIcon(map: MlMap, href: string) {
     const id = `kml-icon-${m.size}`
     p = (async () => {
       try {
-        const { data } = await map.loadImage(href)
+        // https のページでは http のアイコンは fetch が混在コンテンツで遮断されるため https へ直す
+        const { data } = await map.loadImage(upgradeInsecureUrl(href, globalThis.location?.protocol))
         if (!map.hasImage(id)) map.addImage(id, data)
         return id
       } catch (e) {

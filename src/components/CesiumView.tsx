@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
+import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -81,8 +82,6 @@ interface PlateauEntry {
 
 // 「場所」から飛んだときの伏角
 const PLACE_PITCH = -35
-
-const KML_PATTERN = /\.(kml|kmz)$/i
 
 /**
  * OpenFreeMap のベクタータイルを Cesium のイメージャリレイヤーとして重ねる。
@@ -308,6 +307,8 @@ export default function CesiumView({ visible }: Props) {
   // 動的 import を挟むため、viewerRef だけでは StrictMode の二重実行を防げない
   const initStartedRef = useRef(false)
   const sourcesRef = useRef(new Map<string, KmlDataSource>())
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const [initState, setInitState] = useState<InitState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -374,7 +375,44 @@ export default function CesiumView({ visible }: Props) {
         })
       })
 
-      useKmlStore.getState().setFlyTo((id) => {
+      // kmlStore の文書を購読して描画する。Cesium は KmlDataSource（NetworkLink 等を含む
+      // 完全実装）に原本ファイルを渡す。共通の文書モデルは保存と他エンジンの描画に使う
+      const loading = new Set<string>()
+      const syncKml = () => {
+        const entries = useKmlStore.getState().entries
+        for (const e of entries) {
+          if (e.status !== 'loaded' || !e.file || sourcesRef.current.has(e.id) || loading.has(e.id)) continue
+          loading.add(e.id)
+          void (async () => {
+            try {
+              const Cesium = await import('cesium')
+              // camera / canvas は KML の NetworkLink (viewRefreshMode) が参照する。
+              // clampToGround で地表に沿わせないと地形から浮いたり埋まったりする
+              const ds: KmlDataSource = await Cesium.KmlDataSource.load(e.file!, {
+                camera: viewer.camera,
+                canvas: viewer.canvas,
+                clampToGround: true,
+              })
+              await viewer.dataSources.add(ds)
+              sourcesRef.current.set(e.id, ds)
+              if (visibleRef.current) void viewer.flyTo(ds)
+            } catch (err: unknown) {
+              console.error('[Cesium] KML load failed:', err instanceof Error ? err.message : err)
+            } finally {
+              loading.delete(e.id)
+            }
+          })()
+        }
+        for (const [id, ds] of sourcesRef.current) {
+          if (!entries.some((e) => e.id === id)) {
+            viewer.dataSources.remove(ds, true)
+            sourcesRef.current.delete(id)
+          }
+        }
+      }
+      useKmlStore.subscribe(syncKml)
+      syncKml()
+      useKmlStore.getState().registerFlyer('3d-cesium', (id) => {
         const source = sourcesRef.current.get(id)
         if (source) void viewer.flyTo(source)
       })
@@ -389,39 +427,11 @@ export default function CesiumView({ visible }: Props) {
     })
   }, [visible])
 
-  const loadKml = async (file: File) => {
-    const viewer = viewerRef.current
-    if (!viewer) return
-
-    const { add, update } = useKmlStore.getState()
-    const id = crypto.randomUUID()
-    add({ id, name: file.name, status: 'loading' })
-
-    try {
-      const Cesium = await import('cesium')
-      // camera / canvas は KML の NetworkLink (viewRefreshMode) が参照する。
-      // clampToGround で地表に沿わせないと地形から浮いたり埋まったりする
-      const dataSource: KmlDataSource = await Cesium.KmlDataSource.load(file, {
-        camera: viewer.camera,
-        canvas: viewer.canvas,
-        clampToGround: true,
-      })
-      await viewer.dataSources.add(dataSource)
-      sourcesRef.current.set(id, dataSource)
-      await viewer.flyTo(dataSource)
-      update(id, { status: 'loaded', name: dataSource.name || file.name })
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[Cesium] KML load failed:', msg)
-      update(id, { status: 'error', message: msg })
-    }
-  }
-
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
     for (const file of Array.from(e.dataTransfer.files)) {
-      if (KML_PATTERN.test(file.name)) void loadKml(file)
+      if (KML_PATTERN.test(file.name)) void ingestKmlFile(file)
     }
   }
 

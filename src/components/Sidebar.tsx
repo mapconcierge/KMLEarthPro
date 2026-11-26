@@ -8,6 +8,7 @@ import {
   usePlaceStore,
   type Place,
 } from '../store/placeStore'
+import { saveKml } from '../kml/save'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
@@ -19,7 +20,7 @@ const ENGINES: { id: Engine; label: string; badge: string }[] = [
 export default function Sidebar() {
   const { engine, setEngine } = useEngineStore()
   const kmlEntries = useKmlStore((s) => s.entries)
-  const flyToKml = useKmlStore((s) => s.flyTo)
+  const flyToKml = useKmlStore((s) => s.flyers[engine])
   const plateauVisible = useLayerStore((s) => s.plateau)
   const setPlateauVisible = useLayerStore((s) => s.setPlateau)
   const globalBuildingsVisible = useLayerStore((s) => s.globalBuildings)
@@ -124,7 +125,7 @@ export default function Sidebar() {
           )}
           {kmlEntries.length === 0 ? (
             <p className="placeholder-text">
-              CesiumJS に KML/KMZ ファイルをドロップして開く
+              KML/KMZ ファイルを地図へドロップして開く
             </p>
           ) : (
             <ul className="kml-list">
@@ -137,6 +138,16 @@ export default function Sidebar() {
                   >
                     {e.name}
                   </button>
+                  {e.status === 'loaded' && e.doc && (
+                    <>
+                      <button className="kml-save" title="KML で保存" onClick={() => saveKml(e, 'kml')}>
+                        KML
+                      </button>
+                      <button className="kml-save" title="KMZ で保存" onClick={() => saveKml(e, 'kmz')}>
+                        KMZ
+                      </button>
+                    </>
+                  )}
                   {e.status === 'loading' && <span className="kml-state">読込中</span>}
                   {e.status === 'error' && <span className="kml-state">エラー</span>}
                 </li>

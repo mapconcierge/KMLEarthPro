@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Map,
   NavigationControl,
@@ -8,6 +8,9 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { addKmlToMap, geoJsonBounds, removeKmlFromMap } from '../adapters/maplibre-kml'
+import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './MapView.css'
 
@@ -28,6 +31,7 @@ const PLACE_PITCH = 55
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
+  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -78,6 +82,34 @@ export default function MapView() {
       })
     })
 
+    // KML: kmlStore の文書を購読して描画する。エンジン切替後も文書は store に残るので、
+    // MapLibre が後から初期化されても、すでに読み込まれた KML がここで描かれる
+    const rendered: Record<string, ReturnType<typeof geoJsonBounds>> = {}
+    const syncKml = () => {
+      if (!map.isStyleLoaded()) return
+      const entries = useKmlStore.getState().entries
+      for (const e of entries) {
+        if (e.doc && !(e.id in rendered)) {
+          const fc = addKmlToMap(map, e.id, e.doc)
+          const bounds = geoJsonBounds(fc)
+          rendered[e.id] = bounds
+          if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 1500 })
+        }
+      }
+      for (const id of Object.keys(rendered)) {
+        if (!entries.some((e) => e.id === id)) {
+          removeKmlFromMap(map, id)
+          delete rendered[id]
+        }
+      }
+    }
+    map.on('load', syncKml)
+    const unsubscribeKml = useKmlStore.subscribe(syncKml)
+    useKmlStore.getState().registerFlyer('2d-maplibre', (id) => {
+      const bounds = rendered[id]
+      if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: FLY_DURATION_MS / 2 })
+    })
+
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で
     // コンテナが 0x0 のまま固定されるのを防ぐ
     const resizeObserver = new ResizeObserver(() => map.resize())
@@ -85,11 +117,30 @@ export default function MapView() {
 
     return () => {
       resizeObserver.disconnect()
+      unsubscribeKml()
+      useKmlStore.getState().registerFlyer('2d-maplibre', null)
       usePlaceStore.getState().registerFlier('2d-maplibre', null)
       map.remove()
       mapRef.current = null
     }
   }, [])
 
-  return <div ref={containerRef} className="map-view" />
+  return (
+    <div
+      className="map-view"
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        for (const f of Array.from(e.dataTransfer.files)) if (KML_PATTERN.test(f.name)) void ingestKmlFile(f)
+      }}
+    >
+      <div ref={containerRef} className="map-view-canvas" />
+      {dragging && <div className="map-drophint">KML / KMZ をドロップして読み込み</div>}
+    </div>
+  )
 }

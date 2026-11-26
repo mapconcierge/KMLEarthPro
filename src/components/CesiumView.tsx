@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import { findInitialView, resolveAbsoluteView } from '../kml/camera'
+import { resolveAbsoluteView } from '../kml/camera'
+import { resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -378,13 +379,14 @@ export default function CesiumView({ visible }: Props) {
 
       // kmlStore の文書を購読して描画する。Cesium は KmlDataSource（NetworkLink 等を含む
       // 完全実装）に原本ファイルを渡す。共通の文書モデルは保存と他エンジンの描画に使う
-      // 文書に LookAt / Camera があればその視点へ、無ければデータ範囲へ飛ぶ。
+      // 視点（文書内の LookAt/Camera、無ければジオメトリの範囲から作った LookAt）へ飛ぶ。
+      // path があればそのフォルダ/Placemark へ。
       // KML の tilt は 0=真下、Cesium の pitch は -90=真下なので tilt - 90。
       // LookAt は HeadingPitchRange（注視点 + 距離）にそのまま対応する
-      const flyToKml = async (id: string) => {
+      const flyToKml = async (id: string, path?: FeaturePath) => {
         const ds = sourcesRef.current.get(id)
         const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
-        const found = doc && findInitialView(doc)
+        const found = doc && resolveFlyView(doc, path, viewer.canvas.clientWidth / Math.max(viewer.canvas.clientHeight, 1))
         const Cesium = await import('cesium')
         const rad = Cesium.Math.toRadians
         // altitudeMode に応じて、地形（Re:Earth Terrain）の標高を足した絶対高度へ直す。
@@ -415,7 +417,8 @@ export default function CesiumView({ visible }: Props) {
             },
             duration: 3,
           })
-        } else if (ds) {
+        } else if (ds && !path) {
+          // 共通モデルに視点も範囲も無い（NetworkLink だけの KML など）ときは Cesium のデータ範囲へ
           void viewer.flyTo(ds)
         }
       }
@@ -454,7 +457,7 @@ export default function CesiumView({ visible }: Props) {
       }
       useKmlStore.subscribe(syncKml)
       syncKml()
-      useKmlStore.getState().registerFlyer('3d-cesium', (id) => void flyToKml(id))
+      useKmlStore.getState().registerFlyer('3d-cesium', (id, path) => void flyToKml(id, path))
       setInitState('ready')
     }
 

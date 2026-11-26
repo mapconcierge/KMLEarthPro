@@ -164,7 +164,10 @@ export function viewToCenterZoom(
     distance = Math.max(v.range, 1)
   } else {
     const heightAboveGround = Math.max(pose.height - groundElevation, 1)
-    distance = Math.min(heightAboveGround / Math.max(Math.cos(t), 1e-6), MAX_GROUND_DISTANCE_M)
+    // 上限は Camera（視線と地面の交点を推定する）のためのもの。LookAt は range が意図した距離なので
+    // 広い範囲（数十 km）を切り詰めないよう、range に応じて上限を広げる
+    const cap = v.kind === 'LookAt' ? Math.max(MAX_GROUND_DISTANCE_M, v.range * 3) : MAX_GROUND_DISTANCE_M
+    distance = Math.min(heightAboveGround / Math.max(Math.cos(t), 1e-6), cap)
     const horizontal = distance * Math.sin(t)
     lat += (horizontal * Math.cos(h)) / M_PER_DEG_LAT
     lng += (horizontal * Math.sin(h)) / (M_PER_DEG_LON_EQ * Math.cos((pose.lat * Math.PI) / 180))

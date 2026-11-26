@@ -1,0 +1,77 @@
+.kml-tree {
+  list-style: none;
+  font-size: 0.76rem;
+  margin: 2px 0 4px;
+}
+.kml-tree-nested {
+  margin: 0 0 0 12px;
+  padding-left: 6px;
+  border-left: 1px solid #2a2a3e;
+}
+.kml-tree-item {
+  display: block;
+}
+.kml-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.kml-tree-caret {
+  flex: none;
+  width: 16px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0;
+}
+.kml-tree-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #c8c8c8;
+  font: inherit;
+  cursor: pointer;
+}
+.kml-tree-label:hover:not(:disabled) {
+  background: rgba(126, 184, 247, 0.12);
+  color: #7eb8f7;
+}
+.kml-tree-label.selected {
+  background: rgba(126, 184, 247, 0.22);
+  color: #7eb8f7;
+}
+.kml-tree-label:disabled {
+  color: #666;
+  cursor: default;
+}
+.kml-tree-label.hidden {
+  opacity: 0.55;
+}
+.kml-tree-icon {
+  flex: none;
+  font-size: 0.5rem;
+  color: #f59e0b;
+}
+.kml-tree-count {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.66rem;
+  color: #777;
+}
+.kml-tree-more {
+  padding: 2px 4px;
+  color: #777;
+  font-size: 0.7rem;
+}

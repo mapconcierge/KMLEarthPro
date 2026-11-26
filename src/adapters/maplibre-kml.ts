@@ -1,5 +1,5 @@
 import type { FeatureCollection, Feature as GjFeature, Geometry as GjGeometry } from 'geojson'
-import type { FilterSpecification, Map as MlMap, LngLatBoundsLike } from 'maplibre-gl'
+import type { FilterSpecification, Map as MlMap } from 'maplibre-gl'
 import { resolveIconHref, resolveStyle } from '../kml/style'
 import { prepareIcons } from './kml-icons'
 import type { Feature, Geometry, KmlDocument, Style } from '../kml/types'
@@ -62,20 +62,6 @@ export function kmlToGeoJson(doc: KmlDocument, resources?: Record<string, string
   }
   walk(doc.root)
   return { type: 'FeatureCollection', features }
-}
-
-export function geoJsonBounds(fc: FeatureCollection): LngLatBoundsLike | undefined {
-  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity
-  const visit = (c: unknown): void => {
-    if (Array.isArray(c) && typeof c[0] === 'number') {
-      w = Math.min(w, c[0]); e = Math.max(e, c[0])
-      s = Math.min(s, c[1] as number); n = Math.max(n, c[1] as number)
-    } else if (Array.isArray(c)) c.forEach(visit)
-  }
-  const geom = (g: GjGeometry): void =>
-    g.type === 'GeometryCollection' ? g.geometries.forEach(geom) : visit(g.coordinates)
-  fc.features.forEach((f) => geom(f.geometry))
-  return Number.isFinite(w) ? [[w, s], [e, n]] : undefined
 }
 
 const ids = (id: string) => ({

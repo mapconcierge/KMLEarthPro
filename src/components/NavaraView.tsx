@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
-import { addKmlToNavara, flyToNavaraKml, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { addKmlToNavara, flyToNavaraView, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -152,8 +153,15 @@ export default function NavaraView({ visible }: Props) {
       // 地形（DEM ソース）の標高。取得できなければ undefined（呼び出し側が 0 m 扱い）
       const sampleTerrain = async (lng: number, lat: number) =>
         (await view.sampleTerrainMostDetailed(dem, [{ lat, lng }]))[0]?.height
-      const pending: NavaraKml = { parts: [], bounds: undefined, view: undefined }
+      const pending: NavaraKml = { parts: [] }
       const rendered: Record<string, NavaraKml> = {}
+      // path 無しは文書全体、あればそのフォルダ/Placemark へ（視点の決め方は resolveFlyView）
+      const flyToKml = (id: string, path?: FeaturePath) => {
+        const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
+        const box = containerRef.current
+        const target = doc && resolveFlyView(doc, path, box ? box.clientWidth / Math.max(box.clientHeight, 1) : undefined)
+        if (target) void flyToNavaraView(view, target, FLY_DURATION_MS / 2, sampleTerrain)
+      }
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
         for (const e of entries) {
@@ -168,7 +176,7 @@ export default function NavaraView({ visible }: Props) {
                 return
               }
               rendered[e.id] = k
-              void flyToNavaraKml(view, k, FLY_DURATION_MS / 2, sampleTerrain)
+              flyToKml(e.id)
             })
             .catch((err: unknown) => {
               delete rendered[e.id]
@@ -184,9 +192,9 @@ export default function NavaraView({ visible }: Props) {
       }
       useKmlStore.subscribe(syncKml)
       syncKml()
-      useKmlStore.getState().registerFlyer('3d-navara', (id) => {
-        const k = rendered[id]
-        if (k && k !== pending) void flyToNavaraKml(view, k, FLY_DURATION_MS / 2, sampleTerrain)
+      useKmlStore.getState().registerFlyer('3d-navara', (id, path) => {
+        // 描画の準備ができていない（フォント取得中など）間は飛ばない
+        if (rendered[id] && rendered[id] !== pending) flyToKml(id, path)
       })
 
       setInitState('ready')

@@ -9,6 +9,7 @@ import {
   type Place,
 } from '../store/placeStore'
 import { saveKml } from '../kml/save'
+import KmlTree from './KmlTree'
 import './Sidebar.css'
 
 const ENGINES: { id: Engine; label: string; badge: string }[] = [
@@ -30,6 +31,8 @@ export default function Sidebar() {
   const currentPlaceId = usePlaceStore((s) => s.currentId)
   const setTouring = usePlaceStore((s) => s.setTouring)
   const [favoritesOpen, setFavoritesOpen] = useState(true)
+  // KML ごとのフォルダ/Placemark 一覧の開閉
+  const [treeOpen, setTreeOpen] = useState<Record<string, boolean>>({})
 
   // 現在のエンジンがカメラ移動関数を登録していなければ飛べない
   // （Navara / CesiumJS は選択されるまで初期化されない）
@@ -133,26 +136,43 @@ export default function Sidebar() {
           ) : (
             <ul className="kml-list">
               {kmlEntries.map((e) => (
-                <li key={e.id} className={`kml-item kml-${e.status}`} title={e.message ?? e.name}>
-                  <button
-                    className="kml-name"
-                    disabled={e.status !== 'loaded' || !flyToKml}
-                    onClick={() => flyToKml?.(e.id)}
-                  >
-                    {e.name}
-                  </button>
-                  {e.status === 'loaded' && e.doc && (
-                    <>
-                      <button className="kml-save" title="KML で保存" onClick={() => saveKml(e, 'kml')}>
-                        KML
+                <li key={e.id} className="kml-entry">
+                  <div className={`kml-item kml-${e.status}`} title={e.message ?? e.name}>
+                    {e.status === 'loaded' && e.doc ? (
+                      <button
+                        className="kml-tree-caret"
+                        aria-label={treeOpen[e.id] ? 'フォルダ一覧を閉じる' : 'フォルダ一覧を開く'}
+                        aria-expanded={!!treeOpen[e.id]}
+                        onClick={() => setTreeOpen((o) => ({ ...o, [e.id]: !o[e.id] }))}
+                      >
+                        {treeOpen[e.id] ? '▾' : '▸'}
                       </button>
-                      <button className="kml-save" title="KMZ で保存" onClick={() => saveKml(e, 'kmz')}>
-                        KMZ
-                      </button>
-                    </>
+                    ) : (
+                      <span className="kml-tree-caret" />
+                    )}
+                    <button
+                      className="kml-name"
+                      disabled={e.status !== 'loaded' || !flyToKml}
+                      onClick={() => flyToKml?.(e.id)}
+                    >
+                      {e.name}
+                    </button>
+                    {e.status === 'loaded' && e.doc && (
+                      <>
+                        <button className="kml-save" title="KML で保存" onClick={() => saveKml(e, 'kml')}>
+                          KML
+                        </button>
+                        <button className="kml-save" title="KMZ で保存" onClick={() => saveKml(e, 'kmz')}>
+                          KMZ
+                        </button>
+                      </>
+                    )}
+                    {e.status === 'loading' && <span className="kml-state">読込中</span>}
+                    {e.status === 'error' && <span className="kml-state">エラー</span>}
+                  </div>
+                  {treeOpen[e.id] && e.doc && (
+                    <KmlTree doc={e.doc} onFly={flyToKml ? (path) => flyToKml(e.id, path) : null} />
                   )}
-                  {e.status === 'loading' && <span className="kml-state">読込中</span>}
-                  {e.status === 'error' && <span className="kml-state">エラー</span>}
                 </li>
               ))}
             </ul>

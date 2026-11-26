@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { FeaturePath } from '../kml/target'
 import type { KmlDocument } from '../kml/types'
 import type { Engine } from './engineStore'
 
@@ -18,7 +19,8 @@ export interface KmlEntry {
   file?: File
 }
 
-type Flyer = (id: string) => void
+/** path 無しは文書全体、あればそのフォルダ/Placemark へ飛ぶ */
+type Flyer = (id: string, path?: FeaturePath) => void
 
 interface KmlState {
   entries: KmlEntry[]

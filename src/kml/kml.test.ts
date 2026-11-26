@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { hotSpotFraction, iconPlacement } from './icon'
+import { featureAtPath, featureBounds, lookAtFromBounds, resolveFlyView } from './target'
 import { cameraToPose, findInitialView, lookAtToPose, resolveAbsoluteView, viewToCenterZoom } from './camera'
 import { formatKmlColor, parseKmlColor } from './color'
 import { parseCoordinates, parseKml } from './parse'
@@ -149,6 +150,11 @@ describe('viewToCenterZoom (MapLibre)', () => {
     const b = viewToCenterZoom({ ...look, range: 1000 }, 800).zoom
     expect(a - b).toBeCloseTo(1, 6)
   })
+  it('LookAt の range が大きく（数十 km）ても切り詰めず、zoom は range の対数に比例する', () => {
+    const a = viewToCenterZoom({ ...look, tilt: 0, range: 40_000 }, 800).zoom
+    const b = viewToCenterZoom({ ...look, tilt: 0, range: 80_000 }, 800).zoom
+    expect(a - b).toBeCloseTo(1, 6)
+  })
   it('pitch は maxPitch を超えない', () => {
     expect(viewToCenterZoom({ ...look, tilt: 90 }, 800, 85).pitch).toBe(85)
   })
@@ -254,5 +260,60 @@ describe('icon: hotSpotFraction / iconPlacement', () => {
     expect(b.displayWidth).toBe(64)
     expect(b.sizeRatio).toBeCloseTo(a.sizeRatio * 2)
     expect(b.offsetY).toBeCloseTo(-16)
+  })
+})
+
+describe('target: 飛行先の決定', () => {
+  const doc = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>d</name>
+    <Folder><name>F</name>
+      <Placemark><name>pt</name><Point><coordinates>139.0,35.0</coordinates></Point></Placemark>
+      <Placemark><name>line</name><LineString><coordinates>139.0,35.0 139.02,35.01</coordinates></LineString></Placemark>
+      <Placemark><name>withview</name>
+        <LookAt><longitude>140</longitude><latitude>36</latitude><range>77</range></LookAt>
+        <Point><coordinates>140,36</coordinates></Point></Placemark>
+    </Folder>
+    <Placemark><name>nogeom</name></Placemark>
+  </Document></kml>`)
+
+  it('featureAtPath: 根・フォルダ・Placemark・範囲外', () => {
+    expect(featureAtPath(doc, [])?.kind).toBe('Document')
+    expect(featureAtPath(doc, [0])?.name).toBe('F')
+    expect(featureAtPath(doc, [0, 1])?.name).toBe('line')
+    expect(featureAtPath(doc, [0, 9])).toBeUndefined()
+    expect(featureAtPath(doc, [0, 1, 0])).toBeUndefined() // Placemark の下は無い
+  })
+  it('featureBounds: Placemark / フォルダ（配下を合算）/ ジオメトリ無しは undefined', () => {
+    expect(featureBounds(featureAtPath(doc, [0, 0])!)).toEqual([139, 35, 139, 35])
+    expect(featureBounds(featureAtPath(doc, [0, 1])!)).toEqual([139, 35, 139.02, 35.01])
+    expect(featureBounds(featureAtPath(doc, [0])!)).toEqual([139, 35, 140, 36])
+    expect(featureBounds(featureAtPath(doc, [1])!)).toBeUndefined()
+  })
+  it('lookAtFromBounds: 点は固定距離、広がりがあれば範囲に応じて大きくなる', () => {
+    expect(lookAtFromBounds([139, 35, 139, 35])).toMatchObject({ longitude: 139, latitude: 35, range: 800, tilt: 0 })
+    const small = lookAtFromBounds([139, 35, 139.001, 35.001]).range
+    const big = lookAtFromBounds([139, 35, 140, 36]).range
+    expect(big).toBeGreaterThan(small)
+    expect(small).toBeGreaterThanOrEqual(300)
+  })
+  it('lookAtFromBounds: 縦に長い範囲は縦、横に長い範囲は横（アスペクト 1.6 想定）で決まる', () => {
+    const tall = lookAtFromBounds([139, 35, 139, 35.1]).range
+    const wide = lookAtFromBounds([139, 35, 139.1 / 1.0, 35]).range
+    expect(tall).toBeGreaterThan(0)
+    expect(wide).toBeGreaterThan(0)
+    // 同じ長さ(度)の南北と東西なら、東西は 1/1.6 の分だけ小さい距離で収まる（緯度補正の cos も効く）
+    expect(wide).toBeLessThan(tall)
+  })
+  it('lookAtFromBounds: 表示領域が縦長（aspect が小さい）ほど、横に長い範囲は遠くから見る', () => {
+    const b: [number, number, number, number] = [139, 35, 139.3, 35.05]
+    expect(lookAtFromBounds(b, 1.0).range).toBeGreaterThan(lookAtFromBounds(b, 2.0).range)
+  })
+  it('resolveFlyView: 自身の視点 > 範囲、文書全体は最初の視点 > 全体の範囲、無ければ undefined', () => {
+    expect(resolveFlyView(doc, [0, 2])).toMatchObject({ kind: 'LookAt', longitude: 140, range: 77 })
+    expect(resolveFlyView(doc, [0, 0])).toMatchObject({ kind: 'LookAt', longitude: 139, range: 800 })
+    expect(resolveFlyView(doc)).toMatchObject({ kind: 'LookAt', longitude: 140, range: 77 }) // 最初に見つかる視点
+    expect(resolveFlyView(doc, [1])).toBeUndefined()
+    expect(resolveFlyView(doc, [5])).toBeUndefined()
+    const noView = parseKml('<kml><Document><Placemark><Point><coordinates>1,2</coordinates></Point></Placemark></Document></kml>')
+    expect(resolveFlyView(noView)).toMatchObject({ kind: 'LookAt', longitude: 1, latitude: 2, range: 800 })
   })
 })

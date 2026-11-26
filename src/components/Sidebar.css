@@ -158,6 +158,10 @@
   gap: 3px;
 }
 
+.kml-entry {
+  display: block;
+}
+
 .kml-item {
   display: flex;
   align-items: center;

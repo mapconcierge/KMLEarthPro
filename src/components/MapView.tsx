@@ -8,8 +8,9 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { addKmlToMap, geoJsonBounds, removeKmlFromMap } from '../adapters/maplibre-kml'
-import { findInitialView, resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
+import { addKmlToMap, removeKmlFromMap } from '../adapters/maplibre-kml'
+import { resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
+import { resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -85,43 +86,41 @@ export default function MapView() {
 
     // KML: kmlStore の文書を購読して描画する。エンジン切替後も文書は store に残るので、
     // MapLibre が後から初期化されても、すでに読み込まれた KML がここで描かれる
-    const rendered: Record<string, ReturnType<typeof geoJsonBounds>> = {}
-    // 文書に LookAt / Camera があればその視点へ、無ければ範囲全体へ寄る
-    const flyToKml = (id: string, duration: number) => {
+    const rendered: Record<string, true> = {}
+    // path 無しは文書全体（最初の視点、無ければ全体の範囲）、あればそのフォルダ/Placemark（自身の視点、
+    // 無ければ配下の範囲）へ飛ぶ。範囲は LookAt に直されるので、視点の有無で処理は分かれない
+    const flyToKml = (id: string, path: FeaturePath | undefined, duration: number) => {
       const doc = useKmlStore.getState().entries.find((x) => x.id === id)?.doc
-      const view = doc && findInitialView(doc)
-      if (view) {
-        // 自由カメラ API は使わず中心+ズームへ換算する（理由は viewToCenterZoom のコメント）。
-        // 地形標高は DEM タイルが読み込まれていないと引けないため二段階にする:
-        //  1) いまの標高（未取得なら 0 m）で飛ぶ
-        //  2) 飛行が終わり DEM が読み込まれた（idle）後に、引けた標高で同じ視点を再設定する
-        //     （MapLibre は標高が分かった後に中心を指定し直すと、注視点が地形上の画面中央に来る）
-        const elevation = (lng: number, lat: number) => map.queryTerrainElevation([lng, lat]) ?? undefined
-        const target = async () => {
-          const resolved = await resolveAbsoluteView(view, elevation)
-          const ground = elevation(view.longitude, view.latitude) ?? 0
-          return viewToCenterZoom(resolved, map.getContainer().clientHeight, 85, ground)
-        }
-        void target().then((first) => {
-          map.flyTo({ ...first, duration })
-          map.once('moveend', () =>
-            map.once('idle', () => {
-              void target().then((refined) => {
-                // 利用者が動かした後は上書きしない（飛行先から離れていれば何もしない）
-                const c = map.getCenter()
-                const moved =
-                  Math.abs(c.lng - first.center[0]) > 1e-4 ||
-                  Math.abs(c.lat - first.center[1]) > 1e-4 ||
-                  Math.abs(map.getZoom() - first.zoom) > 0.01
-                if (!moved) map.jumpTo(refined)
-              })
-            }),
-          )
-        })
-        return
+      const container = map.getContainer()
+      const view = doc && resolveFlyView(doc, path, container.clientWidth / Math.max(container.clientHeight, 1))
+      if (!view) return
+      // 自由カメラ API は使わず中心+ズームへ換算する（理由は viewToCenterZoom のコメント）。
+      // 地形標高は DEM タイルが読み込まれていないと引けないため二段階にする:
+      //  1) いまの標高（未取得なら 0 m）で飛ぶ
+      //  2) 飛行が終わり DEM が読み込まれた（idle）後に、引けた標高で同じ視点を再設定する
+      //     （MapLibre は標高が分かった後に中心を指定し直すと、注視点が地形上の画面中央に来る）
+      const elevation = (lng: number, lat: number) => map.queryTerrainElevation([lng, lat]) ?? undefined
+      const target = async () => {
+        const resolved = await resolveAbsoluteView(view, elevation)
+        const ground = elevation(view.longitude, view.latitude) ?? 0
+        return viewToCenterZoom(resolved, map.getContainer().clientHeight, 85, ground)
       }
-      const bounds = rendered[id]
-      if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration })
+      void target().then((first) => {
+        map.flyTo({ ...first, duration })
+        map.once('moveend', () =>
+          map.once('idle', () => {
+            void target().then((refined) => {
+              // 利用者が動かした後は上書きしない（飛行先から離れていれば何もしない）
+              const c = map.getCenter()
+              const moved =
+                Math.abs(c.lng - first.center[0]) > 1e-4 ||
+                Math.abs(c.lat - first.center[1]) > 1e-4 ||
+                Math.abs(map.getZoom() - first.zoom) > 0.01
+              if (!moved) map.jumpTo(refined)
+            })
+          }),
+        )
+      })
     }
     // isStyleLoaded() はタイル読み込み中に false を返し続けるため、初回の load を基準にする。
     // （未ロードのまま return すると、次に store が変わるまで KML が描かれず飛行もしない）
@@ -132,17 +131,17 @@ export default function MapView() {
       for (const e of entries) {
         if (e.doc && !(e.id in rendered)) {
           // アイコン読み込み中の重複登録を防ぐため先に印を付ける
-          rendered[e.id] = undefined
+          rendered[e.id] = true
           const entryId = e.id
-          void addKmlToMap(map, entryId, e.doc, e.resources).then((fc) => {
+          void addKmlToMap(map, entryId, e.doc, e.resources).then(() => {
             // 読み込み中に削除されていたら後始末する
             if (!useKmlStore.getState().entries.some((x) => x.id === entryId)) {
               removeKmlFromMap(map, entryId)
               delete rendered[entryId]
               return
             }
-            rendered[entryId] = geoJsonBounds(fc)
-            flyToKml(entryId, 1500)
+            rendered[entryId] = true
+            flyToKml(entryId, undefined, 1500)
           })
         }
       }
@@ -158,7 +157,7 @@ export default function MapView() {
       syncKml()
     })
     const unsubscribeKml = useKmlStore.subscribe(syncKml)
-    useKmlStore.getState().registerFlyer('2d-maplibre', (id) => flyToKml(id, FLY_DURATION_MS / 2))
+    useKmlStore.getState().registerFlyer('2d-maplibre', (id, path) => flyToKml(id, path, FLY_DURATION_MS / 2))
 
     // 2D/3D 切替の display:none や、レイアウト確定前の初期化で
     // コンテナが 0x0 のまま固定されるのを防ぐ

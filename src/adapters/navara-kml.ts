@@ -2,10 +2,10 @@ import type ThreeView from '@navaramap/three'
 import { Color, fetchFontFamilyFromCss, type FeatureEvaluator, type Source } from '@navaramap/three'
 import type { DefaultDescriptions } from '@navaramap/three-default-plugin'
 import type { FeatureCollection } from 'geojson'
-import { kmlToGeoJson, geoJsonBounds } from './maplibre-kml'
+import { kmlToGeoJson } from './maplibre-kml'
 import { prepareIcons } from './kml-icons'
 import { KML_ICON_BASE_PX } from '../kml/style'
-import { findInitialView, resolveAbsoluteView, type ElevationSampler } from '../kml/camera'
+import { resolveAbsoluteView, type ElevationSampler } from '../kml/camera'
 import type { AbstractView, KmlDocument } from '../kml/types'
 
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
@@ -38,10 +38,6 @@ interface NavaraPart {
 export interface NavaraKml {
   /** 通常のフィーチャ用 1 つ + アイコン配置（hotSpot）グループごとに 1 つ */
   parts: NavaraPart[]
-  /** [west, south, east, north] */
-  bounds: [number, number, number, number] | undefined
-  /** 文書の LookAt / Camera。あれば範囲より優先して飛ぶ */
-  view: AbstractView | undefined
 }
 
 const LABEL_SIZE_PX = 18
@@ -157,8 +153,7 @@ export async function addKmlToNavara(
       }
     })
 
-  const b = geoJsonBounds(fc) as [[number, number], [number, number]] | undefined
-  return { parts, view: findInitialView(doc), bounds: b ? [b[0][0], b[0][1], b[1][0], b[1][1]] : undefined }
+  return { parts }
 }
 
 export function removeKmlFromNavara(view: View, k: NavaraKml): void {
@@ -170,23 +165,19 @@ export function removeKmlFromNavara(view: View, k: NavaraKml): void {
 }
 
 /**
- * 文書の視点があればそこへ、無ければ範囲全体へ飛ぶ。
+ * 視点（LookAt / Camera。範囲しか無い場合も呼び出し側が resolveFlyView で LookAt にしてある）へ飛ぶ。
  * 標高は view.sampleTerrainMostDetailed（呼び出し側が sample として渡す）で引く。
  * LookAt は Navara の distance（注視点からカメラ前方へ range 離れる）にそのまま対応する。
  * pitch は水平=0・真下=-90 なので tilt - 90。
  */
-export async function flyToNavaraKml(
+export async function flyToNavaraView(
   view: View,
-  k: NavaraKml,
+  target: AbstractView,
   duration: number,
   sample: ElevationSampler,
 ): Promise<void> {
-  if (!k.view) {
-    if (k.bounds) flyToNavaraBounds(view, k.bounds, duration)
-    return
-  }
   // altitudeMode に応じて地形標高を足し、絶対高度へ直してから飛ぶ
-  const v = await resolveAbsoluteView(k.view, sample)
+  const v = await resolveAbsoluteView(target, sample)
   if (v.kind === 'LookAt') {
     void view.flyTo(
       {
@@ -212,14 +203,4 @@ export async function flyToNavaraKml(
       { duration },
     )
   }
-}
-
-/** 範囲全体が収まる高さ（FOV 約 60° を想定した目安）で真上気味に寄る */
-export function flyToNavaraBounds(view: View, bounds: [number, number, number, number], duration: number): void {
-  const [w, s, e, n] = bounds
-  const lat = (s + n) / 2
-  const dx = (e - w) * 111_320 * Math.cos((lat * Math.PI) / 180)
-  const dy = (n - s) * 110_540
-  const height = Math.min(Math.max(Math.max(dx, dy) * 1.6, 300), 2e7)
-  void view.flyTo({ lng: (w + e) / 2, lat, height, pitch: -90, heading: 0 }, { duration })
 }

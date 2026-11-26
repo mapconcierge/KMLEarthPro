@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
-import { addKmlToNavara, flyToNavaraView, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
-import { parseFeaturePath, resolveFlyView, type FeaturePath } from '../kml/target'
+import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -190,7 +190,19 @@ export default function NavaraView({ visible }: Props) {
           }
         }
       }
-      useKmlStore.subscribe(syncKml)
+      // 選択中のフィーチャの強調（別レイヤ。選択が変わるたびに作り直す）
+      let highlight: NavaraKml | null = null
+      const applyHighlight = () => {
+        if (highlight) removeKmlFromNavara(view, highlight)
+        highlight = null
+        const { selection, entries } = useKmlStore.getState()
+        const doc = selection && entries.find((e) => e.id === selection.id)?.doc
+        if (doc && selection) highlight = addNavaraHighlight(view, doc, placemarkKeys(doc, selection.path))
+      }
+      useKmlStore.subscribe((state, prev) => {
+        syncKml()
+        if (state.selection !== prev.selection) applyHighlight()
+      })
       syncKml()
       // 地図クリックで Placemark を選ぶ。プロパティの kmlPath と、レイヤ → 文書の対応で特定する
       view.on('featureClick', (info) => {

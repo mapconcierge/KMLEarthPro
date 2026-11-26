@@ -24,6 +24,12 @@ function toGeoJsonGeometry(g: Geometry): GjGeometry {
   }
 }
 
+/** #rrggbb の相対輝度（0..1）。ラベルの縁取り色を明暗で選ぶのに使う */
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16)
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+}
+
 function props(name: string | undefined, s: Style | undefined, resources: Record<string, string> | undefined, kmlPath: string) {
   return {
     // 地図クリックでどの Placemark かを特定するための文書内の位置（FeaturePath を '/' で連結）
@@ -35,7 +41,7 @@ function props(name: string | undefined, s: Style | undefined, resources: Record
     hotY: s?.icon?.hotSpot?.y ?? 0.5,
     hotXu: s?.icon?.hotSpot?.xunits ?? '',
     hotYu: s?.icon?.hotSpot?.yunits ?? '',
-    name: name ?? '',
+    name: s?.label?.scale === 0 ? '' : (name ?? ''),
     lineColor: s?.line?.color?.hex ?? DEFAULT_LINE,
     lineOpacity: s?.line?.color?.opacity ?? 1,
     lineWidth: s?.line?.width ?? 1,
@@ -43,6 +49,15 @@ function props(name: string | undefined, s: Style | undefined, resources: Record
     fillOpacity: s?.poly?.fill === false ? 0 : (s?.poly?.color?.opacity ?? 1),
     outline: s?.poly?.outline !== false,
     pointColor: s?.icon?.color?.hex ?? '#ffd400',
+    pointOpacity: s?.icon?.color?.opacity ?? 1,
+    // アイコン画像への乗算色（prepareIcons が着色する）
+    iconColor: s?.icon?.color?.hex ?? '',
+    iconOpacity: s?.icon?.color?.opacity ?? 1,
+    // LabelStyle。scale=0 は KML ではラベル非表示
+    labelColor: s?.label?.color?.hex ?? '#ffffff',
+    labelOpacity: s?.label?.color?.opacity ?? 1,
+    labelScale: s?.label?.scale ?? 1,
+    labelHalo: luminance(s?.label?.color?.hex ?? '#ffffff') > 0.5 ? '#000000' : '#ffffff',
   }
 }
 
@@ -73,6 +88,9 @@ const ids = (id: string) => ({
   point: `kml-${id}-point`,
   icon: `kml-${id}-icon`,
   label: `kml-${id}-label`,
+  hlFill: `kml-${id}-hl-fill`,
+  hlLine: `kml-${id}-hl-line`,
+  hlPoint: `kml-${id}-hl-point`,
 })
 
 /** アイコン URL → MapLibre の画像 ID。同じ URL は文書をまたいで 1 度だけ登録する */
@@ -178,15 +196,22 @@ export async function addKmlToMap(
     paint: {
       'circle-radius': 6,
       'circle-color': ['get', 'pointColor'],
+      'circle-opacity': ['get', 'pointOpacity'],
       'circle-stroke-color': '#000000',
       'circle-stroke-width': 1,
     },
   })
-  const labelPaint = { 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 1.5 }
+  const labelPaint = {
+    'text-color': ['get', 'labelColor'] as never,
+    'text-opacity': ['get', 'labelOpacity'] as never,
+    'text-halo-color': ['get', 'labelHalo'] as never,
+    'text-halo-width': 1.5,
+  }
   const labelLayout = (emBelow: number) => ({
     'text-field': ['get', 'name'] as never,
     'text-font': ['Noto Sans Regular'],
-    'text-size': LABEL_SIZE_PX,
+    // LabelStyle の scale。オフセットは em なので、scale≠1 のときアイコンとの間隔も比例して変わる
+    'text-size': ['*', LABEL_SIZE_PX, ['get', 'labelScale']] as never,
     'text-offset': [0, emBelow] as [number, number],
     'text-anchor': 'top' as const,
   })
@@ -225,8 +250,37 @@ export async function addKmlToMap(
     })
     i += 1
   }
+  // 選択の強調（最前面）。対象は setKmlHighlight が filter で指定する
+  const none: FilterSpecification = ['==', ['get', 'kmlPath'], '\u0000']
+  const HL = '#00e5ff'
+  add({ id: n.hlFill, type: 'fill', source: n.src, filter: ['all', ['==', ['geometry-type'], 'Polygon'], none], paint: { 'fill-color': HL, 'fill-opacity': 0.3 } })
+  add({
+    id: n.hlLine,
+    type: 'line',
+    source: n.src,
+    filter: ['all', ['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'Polygon']], none],
+    paint: { 'line-color': HL, 'line-width': 5, 'line-opacity': 0.9 },
+  })
+  add({
+    id: n.hlPoint,
+    type: 'circle',
+    source: n.src,
+    filter: ['all', isPoint, none],
+    paint: { 'circle-radius': 16, 'circle-color': HL, 'circle-opacity': 0.25, 'circle-stroke-color': HL, 'circle-stroke-width': 3 },
+  })
   layerIdsByDoc.set(id, added)
   return fc
+}
+
+/** 選択中の Placemark（kmlPath の一覧）を強調する。空なら強調を消す */
+export function setKmlHighlight(map: MlMap, id: string, keys: string[]): void {
+  const n = ids(id)
+  const sel: FilterSpecification = keys.length ? ['match', ['get', 'kmlPath'], keys, true, false] : ['==', ['get', 'kmlPath'], '\u0000']
+  const geom = (g: FilterSpecification) => ['all', g, sel] as FilterSpecification
+  if (!map.getLayer(n.hlFill)) return
+  map.setFilter(n.hlFill, geom(['==', ['geometry-type'], 'Polygon']))
+  map.setFilter(n.hlLine, geom(['any', ['==', ['geometry-type'], 'LineString'], ['==', ['geometry-type'], 'Polygon']]))
+  map.setFilter(n.hlPoint, geom(['==', ['geometry-type'], 'Point']))
 }
 
 export function removeKmlFromMap(map: MlMap, id: string): void {

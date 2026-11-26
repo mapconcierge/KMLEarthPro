@@ -340,3 +340,29 @@ describe('地図クリックでの Placemark 特定', () => {
     expect(findPlacemarkPath(doc, 'A', 100, 10)).toBeUndefined()
   })
 })
+
+describe('バルーンの HTML 浄化', async () => {
+  const { sanitizeHtml, expandBalloonText } = await import('./sanitize')
+  it('script / on* / javascript: を落とし、安全な書式は残す', () => {
+    const out = sanitizeHtml(
+      '<b onclick="x()">太字</b><script>alert(1)</script><a href="javascript:alert(1)">bad</a><a href="https://e.com/">ok</a><img src="https://e.com/a.png" onerror="x()"><iframe src="https://e.com"></iframe>',
+    )
+    expect(out).not.toMatch(/script|onclick|onerror|javascript:|iframe/i)
+    expect(out).toContain('<b>太字</b>')
+    expect(out).toContain('href="https://e.com/"')
+    expect(out).toContain('rel="noopener noreferrer"')
+    expect(out).toContain('src="https://e.com/a.png"')
+  })
+  it('未知のタグは外して中身を残す / BalloonStyle のテンプレートを展開する', () => {
+    expect(sanitizeHtml('<foo>中身</foo>')).toBe('中身')
+    expect(expandBalloonText('<h1>$[name]</h1>$[description]', 'N', 'D')).toBe('<h1>N</h1>D')
+  })
+})
+
+describe('IconStyle / LabelStyle のパース', () => {
+  it('LabelStyle の color と scale を読む', () => {
+    const d = parseKml(`<kml><Document><Style id="s"><LabelStyle><color>ff0000ff</color><scale>1.5</scale></LabelStyle><IconStyle><color>8000ff00</color></IconStyle></Style></Document></kml>`)
+    expect(d.styles.s.label).toEqual({ scale: 1.5, color: { hex: '#ff0000', opacity: 1 } })
+    expect(d.styles.s.icon?.color?.hex).toBe('#00ff00')
+  })
+})

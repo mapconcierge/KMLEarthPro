@@ -8,9 +8,9 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { addKmlToMap, kmlLayerIds, removeKmlFromMap } from '../adapters/maplibre-kml'
+import { addKmlToMap, kmlLayerIds, removeKmlFromMap, setKmlHighlight } from '../adapters/maplibre-kml'
 import { resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
-import { parseFeaturePath, resolveFlyView, type FeaturePath } from '../kml/target'
+import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -125,6 +125,14 @@ export default function MapView() {
     // isStyleLoaded() はタイル読み込み中に false を返し続けるため、初回の load を基準にする。
     // （未ロードのまま return すると、次に store が変わるまで KML が描かれず飛行もしない）
     let ready = false
+    // 選択中のフィーチャを強調する（選択した文書以外は消す）
+    const applyHighlight = () => {
+      const { selection, entries } = useKmlStore.getState()
+      for (const id of Object.keys(rendered)) {
+        const doc = entries.find((e) => e.id === id)?.doc
+        setKmlHighlight(map, id, doc && selection?.id === id ? placemarkKeys(doc, selection.path) : [])
+      }
+    }
     const syncKml = () => {
       if (!ready) return
       const entries = useKmlStore.getState().entries
@@ -141,6 +149,7 @@ export default function MapView() {
               return
             }
             rendered[entryId] = true
+            applyHighlight()
             flyToKml(entryId, undefined, 1500)
           })
         }
@@ -156,7 +165,10 @@ export default function MapView() {
       ready = true
       syncKml()
     })
-    const unsubscribeKml = useKmlStore.subscribe(syncKml)
+    const unsubscribeKml = useKmlStore.subscribe((state, prev) => {
+      syncKml()
+      if (state.selection !== prev.selection) applyHighlight()
+    })
 
     // 地図クリックで Placemark を選ぶ（サイドバーの木が追従する）。何もない所をクリックしたら選択解除
     const kmlFeaturesAt = (point: { x: number; y: number }) => {

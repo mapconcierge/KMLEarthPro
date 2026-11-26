@@ -133,7 +133,7 @@ export async function addKmlToNavara(
         case 'point': {
           // アイコン画像のある点は billboard 側で描くので円は隠す
           const hasIcon = str(props.iconHref, '') !== ''
-          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')), show: !hasIcon }
+          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')), opacity: numv(props.pointOpacity, 1), show: !hasIcon }
         }
         case 'billboard': {
           const href = str(props.iconHref, '')
@@ -146,7 +146,14 @@ export async function addKmlToNavara(
           // 先頭の空行で、座標（hotSpot）より下へずらす（labelMaterial のコメント参照）。
           // 名前の改行は、空行の高さ調整が崩れないよう空白にする
           const name = str(props.name, '').replace(/\s*[\r\n]+\s*/g, ' ')
-          return { text: name === '' ? '' : `\n${name}`, opacity: 1, show: name !== '' }
+          // LabelStyle: 色・不透明度・scale。縁取り色は Navara ではフィーチャ単位に変えられず黒固定
+          return {
+            text: name === '' ? '' : `\n${name}`,
+            color: new Color().setStyle(str(props.labelColor, '#ffffff')),
+            opacity: numv(props.labelOpacity, 1),
+            size: LABEL_SIZE_PX * numv(props.labelScale, 1),
+            show: name !== '',
+          }
         }
         default:
           return {}
@@ -154,6 +161,26 @@ export async function addKmlToNavara(
     })
 
   return { parts }
+}
+
+/**
+ * 選択中の Placemark（kmlPath の一覧）を強調する別レイヤを作る。呼び出し側が前のものを
+ * removeKmlFromNavara で消してから呼ぶ。対象が無ければ null
+ */
+export function addNavaraHighlight(view: View, doc: KmlDocument, keys: string[]): NavaraKml | null {
+  const set = new Set(keys)
+  const features = kmlToGeoJson(doc).features.filter((f) => set.has(String((f.properties as { kmlPath?: string }).kmlPath)))
+  if (features.length === 0) return null
+  const HL = new Color().setStyle('#00e5ff')
+  const source = view.addSource({ type: 'geojson', data: { type: 'FeatureCollection', features } })
+  const layer = view.addLayer({
+    type: 'vector',
+    source,
+    polygon: { clampToGround: true, transparent: true, outline: false, color: HL, opacity: 0.35 },
+    polyline: { clampToGround: true, transparent: true, width: 6, color: HL, opacity: 0.9 },
+    point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 30, color: HL, opacity: 0.45 },
+  } as never)
+  return { parts: [{ source, layerId: layer.id }] }
 }
 
 export function removeKmlFromNavara(view: View, k: NavaraKml): void {

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { resolveAbsoluteView } from '../kml/camera'
-import { findPlacemarkPath, resolveFlyView, type FeaturePath } from '../kml/target'
+import { kmlToGeoJson } from '../adapters/maplibre-kml'
+import { findPlacemarkPath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -459,10 +460,45 @@ export default function CesiumView({ visible }: Props) {
       syncKml()
       // 地図クリックで Placemark を選ぶ。KmlDataSource のエンティティは文書モデルと別物なので、
       // 名前と最初の座標で文書モデルの Placemark へ戻す
+      // KML の説明は共通の Balloon で出すので、Cesium 標準の情報パネルは KML のエンティティでは出さない
+      // （PLATEAU など 3D Tiles のフィーチャは従来どおり標準パネル）
+      viewer.selectedEntityChanged.addEventListener((entity) => {
+        if (entity && ([...sourcesRef.current.values()].some((d) => d.entities.contains(entity)) || highlightDs?.entities.contains(entity))) {
+          viewer.selectedEntity = undefined
+        }
+      })
+      // 選択中のフィーチャの強調（共通モデルから GeoJSON を作って別データソースで描く）
+      let highlightDs: import('cesium').GeoJsonDataSource | null = null
+      let highlightSeq = 0
+      const applyHighlight = async () => {
+        const seq = ++highlightSeq
+        const { selection, entries } = useKmlStore.getState()
+        const doc = selection && entries.find((e) => e.id === selection.id)?.doc
+        let next: import('cesium').GeoJsonDataSource | null = null
+        if (doc && selection) {
+          const keys = new Set(placemarkKeys(doc, selection.path))
+          const features = kmlToGeoJson(doc).features.filter((f) => keys.has(String((f.properties as { kmlPath?: string }).kmlPath)))
+          if (features.length) {
+            const hl = Cesium.Color.fromCssColorString('#00e5ff')
+            next = await Cesium.GeoJsonDataSource.load(
+              { type: 'FeatureCollection', features } as never,
+              { stroke: hl, strokeWidth: 6, fill: hl.withAlpha(0.35), markerColor: hl, markerSize: 56, clampToGround: true },
+            )
+          }
+        }
+        if (seq !== highlightSeq) return // 読み込み中にさらに選択が変わった
+        if (highlightDs) viewer.dataSources.remove(highlightDs, true)
+        highlightDs = next
+        if (next) await viewer.dataSources.add(next)
+      }
+      useKmlStore.subscribe((state, prev) => {
+        if (state.selection !== prev.selection) void applyHighlight().catch((e: unknown) => console.warn('[Cesium] highlight failed:', e))
+      })
       const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas)
       handler.setInputAction((ev: { position: import('cesium').Cartesian2 }) => {
         const entity = (viewer.scene.pick(ev.position) as { id?: import('cesium').Entity } | undefined)?.id
         const select = useKmlStore.getState().select
+        if (entity && highlightDs?.entities.contains(entity)) return // 強調表示そのものは選択対象にしない
         const ds = entity && [...sourcesRef.current].find(([, d]) => d.entities.contains(entity))
         if (!entity || !ds) return select(null)
         const time = viewer.clock.currentTime

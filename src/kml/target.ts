@@ -144,3 +144,16 @@ export function findPlacemarkPath(doc: KmlDocument, name: string, lon: number, l
   walk(doc.root, [])
   return best && best.d < 1e-4 ? best.path : undefined
 }
+
+/** path のフィーチャ（フォルダなら配下すべて）に含まれる、ジオメトリを持つ Placemark の kmlPath 一覧（強調表示用） */
+export function placemarkKeys(doc: KmlDocument, path: FeaturePath): string[] {
+  const f = featureAtPath(doc, path)
+  const out: string[] = []
+  const walk = (x: Feature, p: FeaturePath) => {
+    if (x.kind === 'Placemark') {
+      if (x.geometry) out.push(p.join('/'))
+    } else x.children.forEach((c, i) => walk(c, [...p, i]))
+  }
+  if (f) walk(f, path)
+  return out
+}

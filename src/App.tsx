@@ -1,6 +1,7 @@
 import MapView from './components/MapView'
 import NavaraView from './components/NavaraView'
 import CesiumView from './components/CesiumView'
+import Balloon from './components/Balloon'
 import Sidebar from './components/Sidebar'
 import Statusbar from './components/Statusbar'
 import { useEngineStore } from './store/engineStore'
@@ -21,6 +22,7 @@ export default function App() {
         <NavaraView visible={engine === '3d-navara'} />
         {/* Cesium も選択時のみ初期化 */}
         <CesiumView visible={engine === '3d-cesium'} />
+        <Balloon />
       </main>
       <Statusbar />
     </div>

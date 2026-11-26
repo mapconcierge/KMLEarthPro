@@ -1,6 +1,7 @@
 import type { FeatureCollection } from 'geojson'
 import { hotSpotFraction, iconPlacement, loadIconSize } from '../kml/icon'
 import type { HotSpot } from '../kml/types'
+import { needsTint, tintIcon } from './icon-tint'
 
 /** 同じ配置（画像中心のずらし量・ラベル位置）を持つアイコン点のまとまり */
 export interface IconGroup {
@@ -17,6 +18,9 @@ export interface IconGroup {
 
 interface IconProps {
   iconHref?: string
+  /** IconStyle の color（乗算色）。無ければ着色しない */
+  iconColor?: string
+  iconOpacity?: number
   iconScale?: number
   hotX?: number
   hotY?: number
@@ -35,6 +39,15 @@ interface IconProps {
  */
 export async function prepareIcons(fc: FeatureCollection): Promise<Map<string, IconGroup>> {
   const groups = new Map<string, IconGroup>()
+  // IconStyle の color を画像へ乗算する。着色済み画像の URL に差し替える（取れなければ元画像のまま）
+  await Promise.all(
+    fc.features.map(async (f) => {
+      const p = f.properties as IconProps
+      if (p.iconHref && p.iconColor && needsTint(p.iconColor, p.iconOpacity ?? 1)) {
+        p.iconHref = (await tintIcon(p.iconHref, p.iconColor, p.iconOpacity ?? 1)) ?? p.iconHref
+      }
+    }),
+  )
   const hrefs = new Set<string>()
   for (const f of fc.features) {
     const h = (f.properties as IconProps).iconHref

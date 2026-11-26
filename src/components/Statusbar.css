@@ -19,3 +19,13 @@
 .engine-label {
   color: #4ade80;
 }
+
+.status-github {
+  display: flex;
+  align-items: center;
+  color: #888;
+}
+.status-github:hover,
+.status-github:focus-visible {
+  color: #7eb8f7;
+}

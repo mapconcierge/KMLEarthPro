@@ -1,8 +1,11 @@
 import { readKmlFile, writeKmz } from './kmz'
 
 // Cesium の KmlDataSource に渡す前の下ごしらえ。
-// KmlDataSource は viewRefreshMode=onRegion の NetworkLink を警告つきで無視し、onStop は取得できるものの、
-// 実測では URL の BBOX が常に全世界（-180,-90,180,90）で、表示範囲が反映されなかった（原因は未特定）。
+// KmlDataSource は viewRefreshMode=onRegion の NetworkLink を警告つきで無視する。onStop は再取得するが、
+// 再取得の URL には最初の読み込み時の BBOX がそのまま残る。原因（Cesium 1.145 のソースと単体ページでの再現で確認）:
+// processNetworkLinkQueryString が href（Resource）の [bboxWest] などを読み込み時に置換して書き換え、その同じ href を
+// networkLinkInfo.href として保持するため、更新時に clone した href にはもう置換するプレースホルダーが無い。
+// アプリでは読み込み時のカメラが地球全体だったので、BBOX が常に -180,-90,180,90 になっていた。
 // そこで表示範囲に連動する 2 つのモードは Cesium に渡さず取り除き、linkManager が取得して派生エントリとして描かせる。
 
 /** 表示範囲に連動する viewRefreshMode（linkManager が担当するもの） */

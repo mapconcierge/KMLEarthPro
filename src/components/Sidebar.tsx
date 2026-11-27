@@ -20,7 +20,9 @@ const ENGINES: { id: Engine; label: string; badge: string }[] = [
 
 export default function Sidebar() {
   const { engine, setEngine } = useEngineStore()
-  const kmlEntries = useKmlStore((s) => s.entries)
+  const allEntries = useKmlStore((s) => s.entries)
+  // NetworkLink から取得した派生エントリは一覧に出さず、親のツリーの NetworkLink の下に出す
+  const kmlEntries = allEntries.filter((e) => !e.parent)
   const flyToKml = useKmlStore((s) => s.flyers[engine])
   const plateauVisible = useLayerStore((s) => s.plateau)
   const setPlateauVisible = useLayerStore((s) => s.setPlateau)
@@ -36,7 +38,12 @@ export default function Sidebar() {
   // 地図クリックで選ばれた文書のツリーが閉じていれば開く
   const selectedId = useKmlStore((s) => s.selection?.id)
   useEffect(() => {
-    if (selectedId) setTreeOpen((t) => (t[selectedId] ? t : { ...t, [selectedId]: true }))
+    if (!selectedId) return
+    // 選択が NetworkLink の派生文書のときは、一覧に出ている根の文書まで遡って開く
+    const entries = useKmlStore.getState().entries
+    let rootId = selectedId
+    for (let e = entries.find((x) => x.id === rootId); e?.parent; e = entries.find((x) => x.id === rootId)) rootId = e.parent.id
+    setTreeOpen((t) => (t[rootId] ? t : { ...t, [rootId]: true }))
   }, [selectedId])
 
   // 現在のエンジンがカメラ移動関数を登録していなければ飛べない

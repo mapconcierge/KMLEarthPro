@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { FeaturePath } from '../kml/target'
+import type { LinkBase } from '../kml/networkLink'
 import type { KmlDocument } from '../kml/types'
 import type { Engine } from './engineStore'
 
@@ -19,7 +20,31 @@ export interface KmlEntry {
   files?: Record<string, Uint8Array>
   /** 読み込んだ原本。Cesium の KmlDataSource（NetworkLink 等の完全実装）へ渡す */
   file?: File
+  /**
+   * NetworkLink から取得した文書（派生エントリ）のとき、取得元の NetworkLink の位置。
+   * サイドバーの一覧には出さず、親のツリーの NetworkLink の下に出す。Cesium は自前の NetworkLink 処理で描くため file を持たない
+   */
+  parent?: { id: string; path: FeaturePath }
+  /** 取得元の識別子（URL からクエリを除いたもの、または `file:` + KMZ 内のパス）。循環参照の検出に使う */
+  source?: string
+  /** この文書内の相対 href を解決する基準 */
+  base?: LinkBase
+  /** 追加時にその文書へ飛ぶか（既定 true。NetworkLink の更新や flyToView=0 のときは false） */
+  autoFly?: boolean
+  /** NetworkLink をたどった深さ（ルートは 0）。循環参照の打ち切りに使う */
+  depth?: number
 }
+
+/** NetworkLink ごとの取得状態（キーは `${文書 ID}/${フィーチャのパス}`） */
+export interface LinkState {
+  status: 'loading' | 'loaded' | 'error'
+  message?: string
+  /** 最後に取得できた時刻（ms） */
+  fetchedAt?: number
+  /** 取得した文書の派生エントリ ID */
+  derivedId?: string
+}
+export const linkKey = (id: string, path: FeaturePath) => `${id}/${path.join('/')}`
 
 /** path 無しは文書全体、あればそのフォルダ/Placemark へ飛ぶ */
 type Flyer = (id: string, path?: FeaturePath) => void
@@ -33,6 +58,8 @@ export interface KmlSelection {
 interface KmlState {
   entries: KmlEntry[]
   selection: KmlSelection | null
+  links: Record<string, LinkState>
+  setLink: (key: string, state: LinkState | null) => void
   select: (sel: KmlSelection | null) => void
   /** エンジンごとの「KML の範囲へ寄る」関数。各ビューが初期化時に登録する */
   flyers: Partial<Record<Engine, Flyer>>
@@ -45,6 +72,14 @@ interface KmlState {
 export const useKmlStore = create<KmlState>((set) => ({
   entries: [],
   selection: null,
+  links: {},
+  setLink: (key, state) =>
+    set((s) => {
+      const links = { ...s.links }
+      if (state) links[key] = state
+      else delete links[key]
+      return { links }
+    }),
   select: (selection) => set({ selection }),
   flyers: {},
   add: (entry) => set((s) => ({ entries: [...s.entries, entry] })),

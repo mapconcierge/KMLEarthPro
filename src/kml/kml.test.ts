@@ -459,3 +459,65 @@ describe('NetworkLink / Region のパース', () => {
     expect(folder.region?.lod).toEqual({ minLodPixels: 128, maxLodPixels: -1, minFadeExtent: 0, maxFadeExtent: 0 })
   })
 })
+
+describe('NetworkLink の解決・更新（純関数）', async () => {
+  const nl = await import('./networkLink')
+  const ctx = { clientName: 'KMLEarthPro', clientVersion: '1.0', language: 'ja' }
+
+  it('normalizeArchivePath: . と .. を畳み、アーカイブの外へは出ない', () => {
+    expect(nl.normalizeArchivePath('a/./b/../c.kml')).toBe('a/c.kml')
+    expect(nl.normalizeArchivePath('../x.kml')).toBeUndefined()
+  })
+
+  it('resolveHref: 絶対 URL（https ページでは https へ）', () => {
+    expect(nl.resolveHref('http://e.com/a.kml', {}, undefined, 'https:')).toEqual({ kind: 'url', url: 'https://e.com/a.kml' })
+    expect(nl.resolveHref('http://e.com/a.kml', {}, undefined, 'http:')).toEqual({ kind: 'url', url: 'http://e.com/a.kml' })
+  })
+  it('resolveHref: 相対は、URL 基準なら URL に、KMZ 基準なら同梱ファイルに解決する', () => {
+    expect(nl.resolveHref('b/c.kml', { url: 'https://e.com/x/a.kml' }, undefined, 'https:')).toEqual({ kind: 'url', url: 'https://e.com/x/b/c.kml' })
+    const files = { 'data/b.kml': 1, 'top.kml': 1 }
+    expect(nl.resolveHref('data/b.kml?x=1#f', { dir: '' }, files, 'https:')).toEqual({ kind: 'file', name: 'data/b.kml' })
+    expect(nl.resolveHref('../top.kml', { dir: 'data' }, files, 'https:')).toEqual({ kind: 'file', name: 'top.kml' })
+    expect(nl.resolveHref('missing.kml', { dir: '' }, files, 'https:').kind).toBe('unresolved')
+  })
+  it('resolveHref: 基準の無い相対パス・未対応のスキームは理由つきで解決不能', () => {
+    const r = nl.resolveHref('a.kml', {}, {}, 'https:')
+    expect(r.kind === 'unresolved' && r.reason).toContain('基準')
+    expect(nl.resolveHref('file:///etc/passwd', {}, undefined, 'https:').kind).toBe('unresolved')
+  })
+
+  it('buildLinkUrl: httpQuery の置換と連結（? の有無、フラグメント）', () => {
+    const link = { href: 'x', httpQuery: 'client=[clientName]&v=[clientVersion]' }
+    expect(nl.buildLinkUrl('https://e.com/a.kml', link, ctx, false)).toBe('https://e.com/a.kml?client=KMLEarthPro&v=1.0')
+    expect(nl.buildLinkUrl('https://e.com/a.kml?k=1#f', link, ctx, false)).toBe('https://e.com/a.kml?k=1&client=KMLEarthPro&v=1.0#f')
+    expect(nl.buildLinkUrl('https://e.com/a.kml', { href: 'x' }, ctx, false)).toBe('https://e.com/a.kml')
+  })
+  it('buildLinkUrl: viewFormat は withView のときだけ。値の無い [bbox*] は残す', () => {
+    const link = { href: 'x', viewFormat: 'BBOX=[bboxWest],[bboxSouth]' }
+    expect(nl.buildLinkUrl('https://e.com/a', link, ctx, false)).toBe('https://e.com/a')
+    expect(nl.buildLinkUrl('https://e.com/a', link, ctx, true)).toBe('https://e.com/a?BBOX=[bboxWest],[bboxSouth]')
+    const v = { ...ctx, view: { west: 1, south: 2, east: 3, north: 4 } }
+    expect(nl.buildLinkUrl('https://e.com/a', link, v, true)).toBe('https://e.com/a?BBOX=1,2')
+  })
+
+  it('nextRefreshDelayMs: onChange は更新しない / onInterval は既定 4 秒（下限 1 秒）/ onExpire はヘッダから', () => {
+    expect(nl.nextRefreshDelayMs({})).toBeUndefined()
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onInterval' })).toBe(4000)
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onInterval', refreshInterval: 30 })).toBe(30000)
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onInterval', refreshInterval: 0.1 })).toBe(1000)
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onExpire' }, { cacheControl: 'public, max-age=60' })).toBe(60000)
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onExpire' }, { expires: new Date(10_000 + 5000).toUTCString() }, 10_000 - (10_000 % 1000))).toBeGreaterThanOrEqual(1000)
+    expect(nl.nextRefreshDelayMs({ refreshMode: 'onExpire' }, {})).toBeUndefined()
+  })
+
+  it('findNetworkLinks: 有効な NetworkLink だけ（非表示・href 無しは除く）', () => {
+    const d = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <NetworkLink><name>a</name><Link><href>a.kml</href></Link></NetworkLink>
+      <NetworkLink><name>off</name><visibility>0</visibility><Link><href>b.kml</href></Link></NetworkLink>
+      <NetworkLink><name>nohref</name></NetworkLink>
+      <Folder><visibility>0</visibility><NetworkLink><Link><href>c.kml</href></Link></NetworkLink></Folder>
+      <Folder><NetworkLink><name>in</name><Link><href>d.kml</href></Link></NetworkLink></Folder>
+    </Document></kml>`)
+    expect(nl.findNetworkLinks(d).map((x) => [x.path, x.feature.name])).toEqual([[[0], 'a'], [[4, 0], 'in']])
+  })
+})

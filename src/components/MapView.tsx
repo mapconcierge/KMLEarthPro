@@ -150,7 +150,7 @@ export default function MapView() {
             }
             rendered[entryId] = true
             applyHighlight()
-            flyToKml(entryId, undefined, 1500)
+            if (e.autoFly !== false) flyToKml(entryId, undefined, 1500)
           })
         }
       }

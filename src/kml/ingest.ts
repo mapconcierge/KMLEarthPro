@@ -22,7 +22,9 @@ export async function ingestKmlFile(file: File): Promise<void> {
     if (issues.length) {
       console.warn(`[KML] ${file.name}: 仕様の検査で ${issues.length} 件`, issues.map((i) => `${i.rule} [${i.severity}] ${i.where}: ${i.message}`))
     }
-    update(id, { status: 'loaded', name: doc.root.name ?? file.name, doc, resources, files })
+    // KMZ 内の文書は、NetworkLink の相対 href を同梱ファイルから解決する（dir はアーカイブ内のルート）
+    const base = /\.kmz$/i.test(file.name) ? { dir: '' } : {}
+    update(id, { status: 'loaded', name: doc.root.name ?? file.name, doc, resources, files, base, depth: 0 })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[KML] load failed:', msg)

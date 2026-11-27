@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useKmlStore } from '../store/kmlStore'
+import { useEngineStore } from '../store/engineStore'
+import { linkKey, useKmlStore } from '../store/kmlStore'
 import { resolveFlyView, type FeaturePath } from '../kml/target'
 import { childrenOf, type Feature, type KmlDocument } from '../kml/types'
 import './KmlTree.css'
@@ -76,11 +77,14 @@ function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: Nod
   }
   const cls = `kml-tree-label ${selected === key ? 'selected' : ''} ${feature.visibility ? '' : 'hidden'}`
 
-  if (feature.kind === 'Placemark' || feature.kind === 'NetworkLink') {
+  if (feature.kind === 'NetworkLink') {
+    return <LinkNode entryId={entryId} path={path} label={label} cls={cls} canFly={canFly && !!onFly} fly={fly} liRef={ref} setParentOpen={setOpen} />
+  }
+  if (feature.kind === 'Placemark') {
     return (
       <li className="kml-tree-item" ref={ref}>
         <button className={cls} disabled={!canFly || !onFly} onClick={fly} title={label}>
-          <span className="kml-tree-icon">{feature.kind === 'NetworkLink' ? '⛓' : '●'}</span>
+          <span className="kml-tree-icon">●</span>
           {label}
         </button>
       </li>
@@ -106,6 +110,59 @@ function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: Nod
         <ul className="kml-tree kml-tree-nested">
           <Children entryId={entryId} doc={doc} parent={feature} path={path} selected={selected} setSelected={setSelected} onFly={onFly} />
         </ul>
+      )}
+    </li>
+  )
+}
+
+interface LinkNodeProps {
+  entryId: string
+  path: FeaturePath
+  label: string
+  cls: string
+  canFly: boolean
+  fly: () => void
+  liRef: React.RefObject<HTMLLIElement | null>
+  setParentOpen: (open: boolean) => void
+}
+
+/** NetworkLink の行。取得状態を出し、取得できた文書は子ツリーとして開ける */
+function LinkNode({ entryId, path, label, cls, canFly, fly, liRef }: LinkNodeProps) {
+  const state = useKmlStore((s) => s.links[linkKey(entryId, path)])
+  const derived = useKmlStore((s) => (state?.derivedId ? s.entries.find((e) => e.id === state.derivedId) : undefined))
+  const sel = useKmlStore((s) => s.selection)
+  const engine = useEngineStore((s) => s.engine)
+  const flyer = useKmlStore((s) => s.flyers[engine])
+  const [open, setOpen] = useState(false)
+  // 取得した文書の中が選ばれたら（地図クリックなど）開く
+  useEffect(() => {
+    if (derived && sel?.id === derived.id) setOpen(true)
+  }, [sel, derived])
+  const status =
+    !state ? '' : state.status === 'loading' ? '読み込み中…' : state.status === 'error' ? 'エラー' : ''
+  return (
+    <li className="kml-tree-item" ref={liRef}>
+      <div className="kml-tree-folder">
+        <button
+          className="kml-tree-caret"
+          aria-label={open ? '閉じる' : '開く'}
+          aria-expanded={open}
+          disabled={!derived?.doc}
+          onClick={() => setOpen(!open)}
+        >
+          {derived?.doc ? (open ? '▾' : '▸') : ''}
+        </button>
+        <button className={cls} disabled={!canFly} onClick={fly} title={state?.message ?? label}>
+          <span className="kml-tree-icon">⛓</span>
+          {label}
+          {status && <span className={`kml-tree-linkstate ${state?.status}`}>{status}</span>}
+        </button>
+      </div>
+      {state?.status === 'error' && state.message && <div className="kml-tree-linkmsg">{state.message}</div>}
+      {open && derived?.doc && (
+        <div className="kml-tree-nested">
+          <KmlTree entryId={derived.id} doc={derived.doc} onFly={flyer ? (p) => flyer(derived.id, p) : null} />
+        </div>
       )}
     </li>
   )

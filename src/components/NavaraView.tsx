@@ -176,7 +176,7 @@ export default function NavaraView({ visible }: Props) {
                 return
               }
               rendered[e.id] = k
-              flyToKml(e.id)
+              if (e.autoFly !== false) flyToKml(e.id)
             })
             .catch((err: unknown) => {
               delete rendered[e.id]

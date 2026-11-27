@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import MapView from './components/MapView'
 import NavaraView from './components/NavaraView'
 import CesiumView from './components/CesiumView'
@@ -5,10 +6,13 @@ import Balloon from './components/Balloon'
 import Sidebar from './components/Sidebar'
 import Statusbar from './components/Statusbar'
 import { useEngineStore } from './store/engineStore'
+import { startNetworkLinks } from './kml/linkManager'
 import './App.css'
 
 export default function App() {
   const engine = useEngineStore((s) => s.engine)
+  // NetworkLink の取得・更新（文書が kmlStore に入ると始まる）
+  useEffect(() => startNetworkLinks(), [])
 
   return (
     <div className="app-layout">

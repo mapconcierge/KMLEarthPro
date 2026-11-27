@@ -42,7 +42,11 @@ export function featureBounds(f: Feature): Bounds | undefined {
     } else childrenOf(x).forEach(walk)
   }
   walk(f)
-  if (!coords.length) return undefined
+  if (!coords.length) {
+    // ジオメトリが無いもの（取得前の NetworkLink など）は、Region の範囲があればそれを範囲とする
+    const b = f.region?.box
+    return b ? [b.west, b.south, b.east, b.north] : undefined
+  }
   let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity
   for (const [lon, lat] of coords) {
     w = Math.min(w, lon)

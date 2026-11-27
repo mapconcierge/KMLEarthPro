@@ -83,3 +83,19 @@
   color: #777;
   font-size: 0.7rem;
 }
+
+.kml-tree-linkstate {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.66rem;
+  color: #888;
+}
+.kml-tree-linkstate.error {
+  color: #f87171;
+}
+.kml-tree-linkmsg {
+  margin: 0 0 2px 22px;
+  color: #f87171;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}

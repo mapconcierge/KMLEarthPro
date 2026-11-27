@@ -6,6 +6,7 @@ import { navaraRegionView } from '../adapters/navara-view'
 import { hasRegions, visiblePlacemarkKeys } from '../kml/region'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { INITIAL_HEIGHT_3D, INITIAL_LAT, INITIAL_LNG } from '../store/initialCamera'
 import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -90,7 +91,7 @@ export default function NavaraView({ visible }: Props) {
       view.addLight({ ambient: { intensity: BUILDING_AMBIENT_INTENSITY } })
 
       // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
-      view.setCamera({ lng: 0, lat: 20, height: 8_000_000, pitch: -90, heading: 0 })
+      view.setCamera({ lng: INITIAL_LNG, lat: INITIAL_LAT, height: INITIAL_HEIGHT_3D, pitch: -90, heading: 0 })
 
       // 標高タイルを地球表面として描画する
       const dem = view.addSource({

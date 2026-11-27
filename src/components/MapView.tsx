@@ -14,6 +14,7 @@ import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } fro
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { useEngineStore } from '../store/engineStore'
+import { INITIAL_LAT, INITIAL_LNG, INITIAL_ZOOM_2D } from '../store/initialCamera'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './MapView.css'
@@ -43,8 +44,8 @@ export default function MapView() {
     const map = new Map({
       container: containerRef.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [0, 20],
-      zoom: 2,
+      center: [INITIAL_LNG, INITIAL_LAT],
+      zoom: INITIAL_ZOOM_2D,
       // 既定の 60° では地形を横から見渡せないため引き上げる
       maxPitch: 85,
     })

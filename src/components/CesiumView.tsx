@@ -7,6 +7,7 @@ import { placemarkKeys, placemarkLocator, resolveFlyView, type FeaturePath } fro
 import { prepareForCesium } from '../kml/cesium-prep'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { INITIAL_HEIGHT_3D, INITIAL_LAT, INITIAL_LNG } from '../store/initialCamera'
 import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
@@ -357,6 +358,11 @@ export default function CesiumView({ visible }: Props) {
         ),
       })
       viewerRef.current = viewer
+      // 初期カメラは日本の上空（真下、北が上）
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(INITIAL_LNG, INITIAL_LAT, INITIAL_HEIGHT_3D),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+      })
 
       // 地形を有効にすると地表の裏側の地物が透けて見えるため、深度テストを有効にする
       viewer.scene.globe.depthTestAgainstTerrain = true

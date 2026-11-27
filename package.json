@@ -23,7 +23,7 @@
     "@navaramap/three-default-plugin": "0.1.1",
     "cesium": "^1.147.0",
     "fflate": "^0.8.3",
-    "maplibre-gl": "^6.9.0",
+    "maplibre-gl": "^6.19.0",
     "pbf": "^5.1.2",
     "postprocessing": "^6.39.5",
     "react": "^19.3.0",

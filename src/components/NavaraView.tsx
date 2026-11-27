@@ -3,7 +3,7 @@ import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, setNavaraVisibleKeys, type NavaraKml } from '../adapters/navara-kml'
 import { navaraRegionView } from '../adapters/navara-view'
-import { hasRegions, visiblePlacemarkKeys } from '../kml/region'
+import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { INITIAL_HEIGHT_3D, INITIAL_LAT, INITIAL_LNG } from '../store/initialCamera'
@@ -39,6 +39,12 @@ const TERRAIN_MAX_ZOOM = 14
 // 建物が意味を持つ縮尺に入ったときだけ載せ、離れたら外す。
 // 閾値に幅を持たせて境界での付け外しの往復を防ぐ。
 const BUILDINGS_TILESET = 'https://buildings.reearth.land/tileset.json'
+// 地形（terrain レイヤー）は大縮尺になってから載せる。地球全体が見える縮尺で実際の標高を使うと、
+// 地表のメッシュに黒い筋や欠けが出る（Navara 0.1.1 / 0.3.1 で確認。KMLEarthPro の Issue #8）。
+// 外している間は粗い楕円体メッシュになり、地球の輪郭が多面体に見える。標高 0 m のタイルなら出ないことと、
+// 標高データの値自体に異常が無いことは確認済みだが、メッシュ側の原因は未特定。閾値に幅を持たせて付け外しの往復を防ぐ
+const TERRAIN_ADD_ZOOM = 10
+const TERRAIN_REMOVE_ZOOM = 9
 const BUILDINGS_ADD_ZOOM = 14
 const BUILDINGS_REMOVE_ZOOM = 12
 // 夜側で建物が黒く潰れないように足す環境光の強さ
@@ -101,7 +107,18 @@ export default function NavaraView({ visible }: Props) {
         tileSize: 512,
         maxZoom: TERRAIN_MAX_ZOOM,
       })
-      view.addLayer({ type: 'terrain', source: dem })
+      // terrain レイヤーはズームに応じて付け外しする（TERRAIN_ADD_ZOOM のコメント参照）。
+      // ソース（dem）は常に持つので、標高の取得（sampleTerrainMostDetailed）はレイヤー無しでも使える
+      let terrainLayerId: string | null = null
+      view.on('postUpdate', () => {
+        const zoom = view.camera.zoom
+        if (zoom === undefined) return
+        if (!terrainLayerId && zoom >= TERRAIN_ADD_ZOOM) terrainLayerId = view.addLayer({ type: 'terrain', source: dem }).id
+        else if (terrainLayerId && zoom < TERRAIN_REMOVE_ZOOM) {
+          view.deleteLayerById(terrainLayerId)
+          terrainLayerId = null
+        }
+      })
 
       // NOTE: terrain レイヤーと hillshade レイヤーは併用できない。併用すると
       // グローブ表面が一切描画されず画面が真っ暗になる（DEM を別ソースに分けても同じ）。
@@ -170,9 +187,7 @@ export default function NavaraView({ visible }: Props) {
       // 3D では表示範囲が近似（navaraRegionView）。Navara を表示しているときだけ公開する
       const lastKeys: Record<string, Set<string>> = {}
       const engineIsNavara = () => useEngineStore.getState().engine === '3d-navara'
-      const applyRegions = () => {
-        if (!engineIsNavara()) return
-        const rv = navaraRegionView(view)
+      const applyRegions = (rv: RegionView | null = engineIsNavara() ? navaraRegionView(view) : null) => {
         if (!rv) return
         const entries = useKmlStore.getState().entries
         for (const [id, k] of Object.entries(rendered)) {
@@ -187,13 +202,17 @@ export default function NavaraView({ visible }: Props) {
         }
       }
       // 表示中のエンジンだけが公開する（非表示のエンジンが null で上書きしない）
-      const publishView = () => {
-        if (engineIsNavara()) useKmlStore.getState().setView(navaraRegionView(view))
-      }
       let viewTimer: ReturnType<typeof setTimeout> | undefined
-      const onMoved = () => {
-        applyRegions()
-        publishView()
+      const onMoved = (retry = 0) => {
+        if (!engineIsNavara()) return
+        const rv = navaraRegionView(view)
+        if (!rv) {
+          // 地形レイヤーを付けた直後などは、メッシュができるまで地表を引けない。少し待って測り直す
+          if (retry < 8) viewTimer = setTimeout(() => onMoved(retry + 1), 500)
+          return
+        }
+        applyRegions(rv)
+        useKmlStore.getState().setView(rv)
       }
       // 動きが止まってから測る（イベントは動いている間に連続して出るため、短く待って 1 回にまとめる）
       const scheduleMoved = () => {

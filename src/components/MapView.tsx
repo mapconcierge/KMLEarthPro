@@ -54,6 +54,10 @@ export default function MapView() {
 
     map.on('load', () => {
       map.setProjection({ type: 'globe' })
+      // 傾けたとき、遠方ほど低いズームのタイルが選ばれ、建物（OpenMapTiles の building は z13 以上にしか無い）が
+      // 描かれなくなる（3D 建物の消失。Navara / Cesium は地平線まで描く）。画面内のズームの差を 1 段階に抑えて遠方も
+      // 近いズームで読む。読み込むタイル数の上限は最小の 4 倍まで（既定は 3 倍。8 倍でも見え方は同じで、要求が増えるだけだった）。ベクタータイルのソースだけに適用する
+      map.setSourceTileLodParams(1, 4, 'openmaptiles')
 
       map.addSource(TERRAIN_SOURCE, { type: 'raster-dem', url: MAPTERHORN_TILEJSON })
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: 1 })

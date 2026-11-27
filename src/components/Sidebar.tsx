@@ -224,7 +224,7 @@ export default function Sidebar() {
         </section>
       </nav>
       <div className="sidebar-footer">
-        <p className="phase-badge">Phase 0 — 基盤構築中</p>
+        <p className="phase-badge">Phase 1 — KML/KMZ 基本経路を実装中</p>
       </div>
     </aside>
   )

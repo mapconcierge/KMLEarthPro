@@ -30,3 +30,6 @@ test-results/
 public/maplibre-gl-worker.mjs
 public/maplibre-gl-shared.mjs
 public/cesium/
+
+# 検証用に取得する外部 jar（Xerces）
+.cache/

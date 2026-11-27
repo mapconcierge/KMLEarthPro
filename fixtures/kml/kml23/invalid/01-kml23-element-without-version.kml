@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark>
+    <name>balloonVisibility without version="2.3"</name>
+    <balloonVisibility>1</balloonVisibility>
+    <Point><coordinates>139.70,35.65</coordinates></Point>
+  </Placemark>
+</kml>

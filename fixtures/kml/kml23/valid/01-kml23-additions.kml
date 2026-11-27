@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" version="2.3">
+  <Document>
+    <name>KML 2.3 additions</name>
+    <Placemark>
+      <name>balloonVisibility + altitudeOffset + seaFloorAltitudeMode</name>
+      <balloonVisibility>1</balloonVisibility>
+      <LineString>
+        <seaFloorAltitudeMode>clampToSeaFloor</seaFloorAltitudeMode>
+        <coordinates>139.70,35.65,0 139.71,35.66,0</coordinates>
+        <altitudeOffset>2.5</altitudeOffset>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

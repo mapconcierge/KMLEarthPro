@@ -13,6 +13,8 @@
     "typecheck": "tsc -b --noEmit",
     "copy:static-deps": "node scripts/copy-static-deps.mjs",
     "validate:kml": "node scripts/validate-kml.mjs",
+    "validate:kml:xsd11": "node scripts/validate-kml-xsd11.mjs",
+    "xsd11:setup": "node scripts/xsd11/setup.mjs",
     "plateau:index": "node scripts/fetch-plateau-index.mjs"
   },
   "dependencies": {

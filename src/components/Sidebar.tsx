@@ -12,10 +12,10 @@ import { saveKml } from '../kml/save'
 import KmlTree from './KmlTree'
 import './Sidebar.css'
 
-const ENGINES: { id: Engine; label: string; badge: string }[] = [
-  { id: '2d-maplibre', label: 'MapLibre GL JS', badge: '2.75D' },
-  { id: '3d-navara', label: 'Navara 3D', badge: '3D' },
-  { id: '3d-cesium', label: 'CesiumJS', badge: '3D' },
+const ENGINES: { id: Engine; label: string; badge: string; version: string }[] = [
+  { id: '2d-maplibre', label: 'MapLibre GL JS', badge: '2.75D', version: __ENGINE_VERSIONS__.maplibre },
+  { id: '3d-navara', label: 'Navara 3D', badge: '3D', version: __ENGINE_VERSIONS__.navara },
+  { id: '3d-cesium', label: 'CesiumJS', badge: '3D', version: __ENGINE_VERSIONS__.cesium },
 ]
 
 export default function Sidebar() {
@@ -94,6 +94,7 @@ export default function Sidebar() {
               >
                 <span className="engine-badge">{e.badge}</span>
                 {e.label}
+                <span className="engine-version">{e.version}</span>
               </button>
             ))}
           </div>

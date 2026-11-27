@@ -4,9 +4,9 @@ import './Statusbar.css'
 const REPO_URL = 'https://github.com/mapconcierge/KMLEarthPro'
 
 const ENGINE_LABELS = {
-  '2d-maplibre': '2.75D: MapLibre GL JS',
-  '3d-navara': '3D: Navara 0.1.1',
-  '3d-cesium': '3D: CesiumJS',
+  '2d-maplibre': `2.75D: MapLibre GL JS ${__ENGINE_VERSIONS__.maplibre}`,
+  '3d-navara': `3D: Navara ${__ENGINE_VERSIONS__.navara}`,
+  '3d-cesium': `3D: CesiumJS ${__ENGINE_VERSIONS__.cesium}`,
 }
 
 export default function Statusbar() {

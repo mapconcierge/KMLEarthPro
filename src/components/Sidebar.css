@@ -94,6 +94,17 @@
   letter-spacing: 0.05em;
 }
 
+.engine-version {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
+.engine-btn.active .engine-version {
+  color: #7eb8f7;
+}
+
 .engine-btn.active .engine-badge {
   background: #7eb8f7;
   color: #0a0a1e;

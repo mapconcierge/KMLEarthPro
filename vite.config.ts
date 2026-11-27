@@ -7,9 +7,18 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
   version: string
 }
 
+// 画面に出す描画エンジンのバージョン。インストールされている実体の package.json を出典にする
+const installed = (pkg: string) =>
+  (JSON.parse(readFileSync(new URL(`./node_modules/${pkg}/package.json`, import.meta.url), 'utf-8')) as { version: string }).version
+const engineVersions = {
+  maplibre: installed('maplibre-gl'),
+  navara: installed('@navaramap/three'),
+  cesium: installed('cesium'),
+}
+
 export default defineConfig({
   plugins: [react()],
-  define: { __APP_VERSION__: JSON.stringify(version) },
+  define: { __APP_VERSION__: JSON.stringify(version), __ENGINE_VERSIONS__: JSON.stringify(engineVersions) },
   base: '/KMLEarthPro/',
   build: {
     outDir: 'dist',

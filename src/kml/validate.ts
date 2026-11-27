@@ -23,6 +23,8 @@ export const RULES = {
   coordinateSyntax: 'KML-V006', // coordinates は lon,lat[,alt] の組。範囲は KML の座標参照系（LonLat84）
   ringClosed: 'KML-V007', // LinearRing は 4 点以上で閉じる（出典未確認・warning）
   lineMinPoints: 'KML-V008', // LineString は 2 点以上（出典未確認・warning）
+  boxLatitude: 'KML-V009', // LatLonAltBox は north ≥ south（出典未確認・warning。west > east は日付変更線をまたぐので許す）
+  lodRange: 'KML-V010', // Lod は maxLodPixels が -1（上限なし）でない限り minLodPixels 以上（出典未確認・warning）
 } as const
 
 const names = (el: Element) => Array.from(el.children).map((c) => c.localName)
@@ -100,6 +102,22 @@ export function validateKmlSemantics(xml: string): KmlIssue[] {
         if (inUpdate(el)) break
         const missing = ['longitude', 'latitude', 'range'].filter((n) => !child(el, n))
         if (missing.length) add('error', RULES.lookAtRequired, `LookAt に ${missing.join(', ')} が無い`, el)
+        break
+      }
+      case 'LatLonAltBox': {
+        const n = Number(text(el, 'north'))
+        const so = Number(text(el, 'south'))
+        if (Number.isFinite(n) && Number.isFinite(so) && n < so) {
+          add('warning', RULES.boxLatitude, `LatLonAltBox の north(${n}) が south(${so}) より小さい（出典未確認）`, el)
+        }
+        break
+      }
+      case 'Lod': {
+        const min = Number(text(el, 'minLodPixels') ?? 0)
+        const max = Number(text(el, 'maxLodPixels') ?? -1)
+        if (Number.isFinite(min) && Number.isFinite(max) && max !== -1 && max < min) {
+          add('warning', RULES.lodRange, `Lod の maxLodPixels(${max}) が minLodPixels(${min}) より小さい（出典未確認）`, el)
+        }
         break
       }
       case 'coordinates': {

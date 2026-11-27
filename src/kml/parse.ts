@@ -8,7 +8,12 @@ import type {
   Geometry,
   HotSpot,
   KmlDocument,
+  Link,
+  Lod,
+  NetworkLink,
   Placemark,
+  Region,
+
   Style,
   StyleMap,
 } from './types'
@@ -185,9 +190,57 @@ function parseView(el: Element | undefined): AbstractView | undefined {
   return undefined
 }
 
+function optNum(el: Element, name: string): number | undefined {
+  const t = text(el, name)
+  const v = Number(t)
+  return t !== undefined && Number.isFinite(v) ? v : undefined
+}
+function oneOf<T extends string>(v: string | undefined, allowed: readonly T[]): T | undefined {
+  return (allowed as readonly string[]).includes(v ?? '') ? (v as T) : undefined
+}
+
+function parseRegion(el: Element | undefined): Region | undefined {
+  const box = el && child(el, 'LatLonAltBox')
+  if (!el || !box) return undefined
+  const lodEl = child(el, 'Lod')
+  const lod: Lod | undefined = lodEl && {
+    minLodPixels: num(lodEl, 'minLodPixels', 0),
+    maxLodPixels: num(lodEl, 'maxLodPixels', -1),
+    minFadeExtent: num(lodEl, 'minFadeExtent', 0),
+    maxFadeExtent: num(lodEl, 'maxFadeExtent', 0),
+  }
+  return {
+    box: {
+      north: num(box, 'north'),
+      south: num(box, 'south'),
+      east: num(box, 'east'),
+      west: num(box, 'west'),
+      minAltitude: optNum(box, 'minAltitude'),
+      maxAltitude: optNum(box, 'maxAltitude'),
+      altitudeMode: altMode(box),
+    },
+    lod,
+  }
+}
+
+/** <Link>（KML 2.2 で非推奨になった <Url> も同じ形として読む） */
+function parseLink(el: Element | undefined): Link | undefined {
+  if (!el) return undefined
+  return {
+    href: text(el, 'href'),
+    refreshMode: oneOf(text(el, 'refreshMode'), ['onChange', 'onInterval', 'onExpire'] as const),
+    refreshInterval: optNum(el, 'refreshInterval'),
+    viewRefreshMode: oneOf(text(el, 'viewRefreshMode'), ['never', 'onStop', 'onRequest', 'onRegion'] as const),
+    viewRefreshTime: optNum(el, 'viewRefreshTime'),
+    viewBoundScale: optNum(el, 'viewBoundScale'),
+    viewFormat: text(el, 'viewFormat'),
+    httpQuery: text(el, 'httpQuery'),
+  }
+}
+
 function parseFeature(el: Element, doc: KmlDocument): Feature | undefined {
   const name = el.localName
-  if (name !== 'Placemark' && name !== 'Folder' && name !== 'Document') {
+  if (name !== 'Placemark' && name !== 'Folder' && name !== 'Document' && name !== 'NetworkLink') {
     return undefined
   }
   const base = {
@@ -198,6 +251,7 @@ function parseFeature(el: Element, doc: KmlDocument): Feature | undefined {
     open: bool(el, 'open', false),
     styleUrl: text(el, 'styleUrl'),
     view: parseView(child(el, 'LookAt') ?? child(el, 'Camera')),
+    region: parseRegion(child(el, 'Region')),
   }
   const inline = child(el, 'Style')
   const style = inline ? parseStyle(inline) : undefined
@@ -213,6 +267,17 @@ function parseFeature(el: Element, doc: KmlDocument): Feature | undefined {
       geometry: geomEl ? parseGeometry(geomEl, doc.warnings) : undefined,
     }
     return pm
+  }
+  if (name === 'NetworkLink') {
+    const nl: NetworkLink = {
+      kind: 'NetworkLink',
+      ...base,
+      style,
+      link: parseLink(child(el, 'Link') ?? child(el, 'Url')),
+      refreshVisibility: bool(el, 'refreshVisibility', false),
+      flyToView: bool(el, 'flyToView', false),
+    }
+    return nl
   }
   const folder: Folder = { kind: name, ...base, style, children: [] }
   collect(el, folder, doc)
@@ -257,7 +322,7 @@ function collect(el: Element, into: Folder, doc: KmlDocument): void {
           'ExtendedData',
           'TimeStamp',
           'TimeSpan',
-          'Region',
+          'Region', // parseFeature が読む（コンテナの子としては警告しない）
           'phoneNumber',
           'AddressDetails',
         ].includes(c.localName)

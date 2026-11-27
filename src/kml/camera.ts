@@ -1,4 +1,4 @@
-import type { AbstractView, Camera, Feature, KmlDocument, LookAt } from './types'
+import { childrenOf, type AbstractView, type Camera, type Feature, type KmlDocument, type LookAt } from './types'
 
 /**
  * KML の視点（LookAt / Camera）を各エンジンへ渡すための共通処理。
@@ -17,11 +17,9 @@ import type { AbstractView, Camera, Feature, KmlDocument, LookAt } from './types
 export function findInitialView(doc: KmlDocument): AbstractView | undefined {
   const walk = (f: Feature): AbstractView | undefined => {
     if (f.view) return f.view
-    if (f.kind !== 'Placemark') {
-      for (const c of f.children) {
-        const v = walk(c)
-        if (v) return v
-      }
+    for (const c of childrenOf(f)) {
+      const v = walk(c)
+      if (v) return v
     }
     return undefined
   }

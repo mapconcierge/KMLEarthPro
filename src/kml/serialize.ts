@@ -1,5 +1,5 @@
 import { formatKmlColor } from './color'
-import type { AbstractView, Coord, Feature, Geometry, KmlDocument, Style } from './types'
+import type { AbstractView, Coord, Feature, Geometry, KmlDocument, Link, Region, Style } from './types'
 
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -54,6 +54,20 @@ function view(v: AbstractView): string {
     : `<Camera>${common}${tag('roll', v.roll)}${mode}</Camera>`
 }
 
+function region(r: Region | undefined): string {
+  if (!r) return ''
+  const b = r.box
+  const lod = r.lod
+    ? `<Lod>${tag('minLodPixels', r.lod.minLodPixels)}${tag('maxLodPixels', r.lod.maxLodPixels)}${tag('minFadeExtent', r.lod.minFadeExtent)}${tag('maxFadeExtent', r.lod.maxFadeExtent)}</Lod>`
+    : ''
+  return `<Region><LatLonAltBox>${tag('north', b.north)}${tag('south', b.south)}${tag('east', b.east)}${tag('west', b.west)}${tag('minAltitude', b.minAltitude)}${tag('maxAltitude', b.maxAltitude)}${b.altitudeMode === 'clampToGround' && b.minAltitude === undefined && b.maxAltitude === undefined ? '' : tag('altitudeMode', b.altitudeMode)}</LatLonAltBox>${lod}</Region>`
+}
+
+function link(l: Link | undefined): string {
+  if (!l) return ''
+  return `<Link>${tag('href', l.href)}${tag('refreshMode', l.refreshMode)}${tag('refreshInterval', l.refreshInterval)}${tag('viewRefreshMode', l.viewRefreshMode)}${tag('viewRefreshTime', l.viewRefreshTime)}${tag('viewBoundScale', l.viewBoundScale)}${tag('viewFormat', l.viewFormat)}${tag('httpQuery', l.httpQuery)}</Link>`
+}
+
 /**
  * Feature 共通の子要素。KML の XSD の順序（name, visibility, open, description, AbstractView, styleUrl）に合わせる。
  * 順序が違うと XSD 不適合になる（visibility を description の後に出していたのを修正）
@@ -72,9 +86,12 @@ function featureHead(f: Feature): string {
 function feature(f: Feature, ind: string): string {
   const idAttr = f.id ? ` id="${esc(f.id)}"` : ''
   const head = featureHead(f)
-  const inline = f.style ? style(f.style, '') : ''
+  // XSD の順序: head → Style → Region → 種別ごとの要素
+  const inline = (f.style ? style(f.style, '') : '') + region(f.region)
   if (f.kind === 'Placemark')
     return `${ind}<Placemark${idAttr}>${head}${inline}${f.geometry ? geometry(f.geometry) : ''}</Placemark>\n`
+  if (f.kind === 'NetworkLink')
+    return `${ind}<NetworkLink${idAttr}>${head}${inline}${f.refreshVisibility ? tag('refreshVisibility', 1) : ''}${f.flyToView ? tag('flyToView', 1) : ''}${link(f.link)}</NetworkLink>\n`
   return `${ind}<${f.kind}${idAttr}>${head}${inline}\n${f.children.map((c) => feature(c, ind + '  ')).join('')}${ind}</${f.kind}>\n`
 }
 
@@ -99,7 +116,7 @@ export function serializeKml(doc: KmlDocument): string {
   // 根が Folder の場合も Document で包んで共有スタイルを置ける形にする
   const body =
     root.kind === 'Document'
-      ? `  <Document${root.id ? ` id="${esc(root.id)}"` : ''}>${featureHead(root)}\n${styles}${maps}${root.children.map((c) => feature(c, '    ')).join('')}  </Document>\n`
+      ? `  <Document${root.id ? ` id="${esc(root.id)}"` : ''}>${featureHead(root)}\n${styles}${maps}${region(root.region)}${root.children.map((c) => feature(c, '    ')).join('')}  </Document>\n`
       : `  <Document>\n${styles}${maps}${feature(root, '    ')}  </Document>\n`
   return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n${body}</kml>\n`
 }

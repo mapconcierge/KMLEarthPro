@@ -431,3 +431,31 @@ describe('KMZ のメイン文書の選び方', async () => {
     await expect(readKmlFile(new File([z as BlobPart], 'x.kmz'))).rejects.toThrow('KMZ に .kml')
   })
 })
+
+describe('NetworkLink / Region のパース', () => {
+  const doc = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+    <NetworkLink id="a"><name>n</name><refreshVisibility>1</refreshVisibility><flyToView>true</flyToView>
+      <Link><href>x.kml</href><refreshMode>onInterval</refreshMode><refreshInterval>10</refreshInterval>
+        <viewRefreshMode>onStop</viewRefreshMode><viewBoundScale>2</viewBoundScale><viewFormat>BBOX=[bboxWest]</viewFormat></Link></NetworkLink>
+    <NetworkLink><Url><href>old.kml</href></Url></NetworkLink>
+    <Folder><Region><LatLonAltBox><north>2</north><south>1</south><east>4</east><west>3</west><minAltitude>5</minAltitude></LatLonAltBox>
+      <Lod><minLodPixels>128</minLodPixels></Lod></Region></Folder>
+  </Document></kml>`)
+  const [a, old, folder] = doc.root.children
+  it('Link の各値と既定値の扱い（省略は undefined のまま）', () => {
+    expect(a.kind).toBe('NetworkLink')
+    if (a.kind !== 'NetworkLink') return
+    expect(a.refreshVisibility).toBe(true)
+    expect(a.flyToView).toBe(true)
+    expect(a.link).toMatchObject({ href: 'x.kml', refreshMode: 'onInterval', refreshInterval: 10, viewRefreshMode: 'onStop', viewBoundScale: 2, viewFormat: 'BBOX=[bboxWest]' })
+    expect(a.link?.viewRefreshTime).toBeUndefined()
+  })
+  it('旧形式の Url も Link として読む。警告は出ない', () => {
+    expect(old.kind === 'NetworkLink' && old.link?.href).toBe('old.kml')
+    expect(doc.warnings).toEqual([])
+  })
+  it('Region: LatLonAltBox と Lod（省略値は仕様の既定）', () => {
+    expect(folder.region?.box).toMatchObject({ north: 2, south: 1, east: 4, west: 3, minAltitude: 5, altitudeMode: 'clampToGround' })
+    expect(folder.region?.lod).toEqual({ minLodPixels: 128, maxLodPixels: -1, minFadeExtent: 0, maxFadeExtent: 0 })
+  })
+})

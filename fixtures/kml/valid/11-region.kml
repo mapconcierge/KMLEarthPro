@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>regions</name>
+    <Region>
+      <LatLonAltBox><north>35.70</north><south>35.60</south><east>139.80</east><west>139.60</west></LatLonAltBox>
+    </Region>
+    <Folder>
+      <name>detail (visible when large)</name>
+      <Region>
+        <LatLonAltBox>
+          <north>35.67</north><south>35.65</south><east>139.72</east><west>139.69</west>
+          <minAltitude>0</minAltitude><maxAltitude>100</maxAltitude>
+          <altitudeMode>relativeToGround</altitudeMode>
+        </LatLonAltBox>
+        <Lod>
+          <minLodPixels>128</minLodPixels><maxLodPixels>-1</maxLodPixels>
+          <minFadeExtent>16</minFadeExtent><maxFadeExtent>16</maxFadeExtent>
+        </Lod>
+      </Region>
+      <Placemark>
+        <name>detail point</name>
+        <Region>
+          <LatLonAltBox><north>35.661</north><south>35.659</south><east>139.701</east><west>139.699</west></LatLonAltBox>
+          <Lod><minLodPixels>256</minLodPixels><maxLodPixels>1024</maxLodPixels></Lod>
+        </Region>
+        <Point><coordinates>139.70,35.66</coordinates></Point>
+      </Placemark>
+    </Folder>
+    <NetworkLink>
+      <name>region based</name>
+      <Region>
+        <LatLonAltBox><north>35.67</north><south>35.65</south><east>139.72</east><west>139.69</west></LatLonAltBox>
+        <Lod><minLodPixels>256</minLodPixels></Lod>
+      </Region>
+      <Link><href>https://example.com/tile.kml</href><viewRefreshMode>onRegion</viewRefreshMode></Link>
+    </NetworkLink>
+  </Document>
+</kml>

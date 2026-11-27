@@ -1,5 +1,5 @@
 import { findInitialView } from './camera'
-import type { AbstractView, Coord, Feature, Geometry, KmlDocument, LookAt, Placemark } from './types'
+import { childrenOf, type AbstractView, type Coord, type Feature, type Geometry, type KmlDocument, type LookAt, type Placemark } from './types'
 
 /** [west, south, east, north]（度）。日付変更線をまたぐ範囲は扱わない */
 export type Bounds = [west: number, south: number, east: number, north: number]
@@ -10,8 +10,7 @@ export type FeaturePath = number[]
 export function featureAtPath(doc: KmlDocument, path: FeaturePath): Feature | undefined {
   let f: Feature = doc.root
   for (const i of path) {
-    if (f.kind === 'Placemark') return undefined
-    const next: Feature | undefined = f.children[i]
+    const next: Feature | undefined = childrenOf(f)[i]
     if (!next) return undefined
     f = next
   }
@@ -40,7 +39,7 @@ export function featureBounds(f: Feature): Bounds | undefined {
   const walk = (x: Feature) => {
     if (x.kind === 'Placemark') {
       if (x.geometry) geometryCoords(x.geometry, coords)
-    } else x.children.forEach(walk)
+    } else childrenOf(x).forEach(walk)
   }
   walk(f)
   if (!coords.length) return undefined
@@ -139,7 +138,7 @@ export function findPlacemarkPath(doc: KmlDocument, name: string, lon: number, l
       if (!c) return
       const d = Math.hypot(c[0] - lon, c[1] - lat)
       if (!best || d < best.d) best = { path, d }
-    } else f.children.forEach((c, i) => walk(c, [...path, i]))
+    } else childrenOf(f).forEach((c, i) => walk(c, [...path, i]))
   }
   walk(doc.root, [])
   return best && best.d < 1e-4 ? best.path : undefined
@@ -152,7 +151,7 @@ export function placemarkKeys(doc: KmlDocument, path: FeaturePath): string[] {
   const walk = (x: Feature, p: FeaturePath) => {
     if (x.kind === 'Placemark') {
       if (x.geometry) out.push(p.join('/'))
-    } else x.children.forEach((c, i) => walk(c, [...p, i]))
+    } else childrenOf(x).forEach((c, i) => walk(c, [...p, i]))
   }
   if (f) walk(f, path)
   return out

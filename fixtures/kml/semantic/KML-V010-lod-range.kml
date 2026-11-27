@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Region><LatLonAltBox><north>36</north><south>35</south><east>140</east><west>139</west></LatLonAltBox><Lod><minLodPixels>512</minLodPixels><maxLodPixels>128</maxLodPixels></Lod></Region></Document></kml>

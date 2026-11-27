@@ -2,7 +2,7 @@ import type { FeatureCollection, Feature as GjFeature, Geometry as GjGeometry } 
 import type { FilterSpecification, Map as MlMap } from 'maplibre-gl'
 import { resolveIconHref, resolveStyle, upgradeInsecureUrl } from '../kml/style'
 import { prepareIcons } from './kml-icons'
-import type { Feature, Geometry, KmlDocument, Style } from '../kml/types'
+import { childrenOf, type Feature, type Geometry, type KmlDocument, type Style } from '../kml/types'
 
 // 2D(MapLibre) では高度を無視する。アイコンは画像（取れなければ円）、hotSpot とラベル位置に対応。
 const DEFAULT_LINE = '#ffffff'
@@ -74,7 +74,7 @@ export function kmlToGeoJson(doc: KmlDocument, resources?: Record<string, string
         properties: props(f.name, resolveStyle(doc, f), resources, path.join('/')),
       })
     } else {
-      f.children.forEach((c, i) => walk(c, [...path, i]))
+      childrenOf(f).forEach((c, i) => walk(c, [...path, i]))
     }
   }
   walk(doc.root, [])

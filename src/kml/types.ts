@@ -83,6 +83,45 @@ export interface Camera {
 }
 export type AbstractView = ({ kind: 'LookAt' } & LookAt) | ({ kind: 'Camera' } & Camera)
 
+/** Region の範囲（度）。minAltitude / maxAltitude は m */
+export interface LatLonAltBox {
+  north: number
+  south: number
+  east: number
+  west: number
+  minAltitude?: number
+  maxAltitude?: number
+  altitudeMode: AltitudeMode
+}
+/** Lod: 領域が画面上で占める大きさ（px）に応じた表示範囲。maxLodPixels = -1 は上限なし */
+export interface Lod {
+  minLodPixels: number
+  maxLodPixels: number
+  minFadeExtent: number
+  maxFadeExtent: number
+}
+export interface Region {
+  box: LatLonAltBox
+  lod?: Lod
+}
+
+export type RefreshMode = 'onChange' | 'onInterval' | 'onExpire'
+export type ViewRefreshMode = 'never' | 'onStop' | 'onRequest' | 'onRegion'
+/**
+ * NetworkLink の Link（旧形式の Url も読む）。省略された値は undefined のまま持ち（保存で値を足さないため）、
+ * 既定値（refreshMode=onChange, refreshInterval=4, viewRefreshMode=never, viewRefreshTime=4, viewBoundScale=1）は使う側で補う
+ */
+export interface Link {
+  href?: string
+  refreshMode?: RefreshMode
+  refreshInterval?: number
+  viewRefreshMode?: ViewRefreshMode
+  viewRefreshTime?: number
+  viewBoundScale?: number
+  viewFormat?: string
+  httpQuery?: string
+}
+
 interface FeatureBase {
   id?: string
   name?: string
@@ -92,6 +131,7 @@ interface FeatureBase {
   styleUrl?: string
   style?: Style
   view?: AbstractView
+  region?: Region
 }
 export interface Placemark extends FeatureBase {
   kind: 'Placemark'
@@ -101,7 +141,19 @@ export interface Folder extends FeatureBase {
   kind: 'Folder' | 'Document'
   children: Feature[]
 }
-export type Feature = Placemark | Folder
+/** 別の KML 資源への参照。取得した内容は文書モデルには入れない（kmlStore の派生エントリが持つ） */
+export interface NetworkLink extends FeatureBase {
+  kind: 'NetworkLink'
+  link?: Link
+  refreshVisibility: boolean
+  flyToView: boolean
+}
+export type Feature = Placemark | Folder | NetworkLink
+
+/** 子を持つ（Document / Folder）なら子の一覧、それ以外（Placemark / NetworkLink）は空 */
+export function childrenOf(f: Feature): Feature[] {
+  return f.kind === 'Placemark' || f.kind === 'NetworkLink' ? [] : f.children
+}
 
 export interface KmlDocument {
   root: Folder

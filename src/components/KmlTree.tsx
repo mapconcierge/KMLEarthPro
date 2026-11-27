@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useKmlStore } from '../store/kmlStore'
 import { resolveFlyView, type FeaturePath } from '../kml/target'
-import type { Feature, KmlDocument } from '../kml/types'
+import { childrenOf, type Feature, type KmlDocument } from '../kml/types'
 import './KmlTree.css'
 
 /** 1 フォルダで一度に描画する子の上限（数千件の Placemark でサイドバーが重くなるのを防ぐ） */
@@ -37,9 +37,9 @@ interface ChildrenProps extends Props {
 }
 
 function Children({ entryId, doc, parent, path, selected, setSelected, onFly }: ChildrenProps) {
-  if (parent.kind === 'Placemark') return null
-  const shown = parent.children.slice(0, MAX_CHILDREN_RENDERED)
-  const rest = parent.children.length - shown.length
+  const all = childrenOf(parent)
+  const shown = all.slice(0, MAX_CHILDREN_RENDERED)
+  const rest = all.length - shown.length
   return (
     <>
       {shown.map((f, i) => (
@@ -58,7 +58,7 @@ interface NodeProps extends Props {
 }
 
 function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: NodeProps) {
-  const [open, setOpen] = useState(feature.kind !== 'Placemark' && feature.open)
+  const [open, setOpen] = useState(feature.kind !== 'Placemark' && feature.kind !== 'NetworkLink' && feature.open)
   const key = path.join('/')
   const ref = useRef<HTMLLIElement>(null)
   // 選択が自分の子孫なら開き、自分なら見える位置へスクロールする（地図クリックで選ばれたとき用）
@@ -67,7 +67,7 @@ function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: Nod
     if (selected.startsWith(key + '/')) setOpen(true)
     else if (selected === key) ref.current?.scrollIntoView({ block: 'nearest' })
   }, [selected, key])
-  const label = feature.name?.trim() || (feature.kind === 'Placemark' ? '(名称なし)' : '(フォルダ)')
+  const label = feature.name?.trim() || (feature.kind === 'Placemark' ? '(名称なし)' : feature.kind === 'NetworkLink' ? '(ネットワークリンク)' : '(フォルダ)')
   // 視点もジオメトリも無いフィーチャは飛べない
   const canFly = useMemo(() => resolveFlyView(doc, path) !== undefined, [doc, path])
   const fly = () => {
@@ -76,11 +76,11 @@ function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: Nod
   }
   const cls = `kml-tree-label ${selected === key ? 'selected' : ''} ${feature.visibility ? '' : 'hidden'}`
 
-  if (feature.kind === 'Placemark') {
+  if (feature.kind === 'Placemark' || feature.kind === 'NetworkLink') {
     return (
       <li className="kml-tree-item" ref={ref}>
         <button className={cls} disabled={!canFly || !onFly} onClick={fly} title={label}>
-          <span className="kml-tree-icon">●</span>
+          <span className="kml-tree-icon">{feature.kind === 'NetworkLink' ? '⛓' : '●'}</span>
           {label}
         </button>
       </li>
@@ -99,7 +99,7 @@ function Node({ entryId, doc, feature, path, selected, setSelected, onFly }: Nod
         </button>
         <button className={cls} disabled={!canFly || !onFly} onClick={fly} title={label}>
           {label}
-          <span className="kml-tree-count">{feature.children.length}</span>
+          <span className="kml-tree-count">{childrenOf(feature).length}</span>
         </button>
       </div>
       {open && (

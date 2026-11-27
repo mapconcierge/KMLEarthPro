@@ -58,7 +58,7 @@ docs/
 | 段階 | 内容 | 状態 |
 |------|------|------|
 | Phase 0 | 基盤構築・GitHub Pages 配信・Navara 実証 | 🚧 進行中 |
-| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre/Navara 表示・KML/KMZ 保存まで） |
+| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre/Navara 表示・KML/KMZ 保存まで。KMZ は同梱ファイルも書き戻し） |
 | Phase 2 | NetworkLink・Update・Region・時間 | 未着手 |
 | Phase 3 | PhotoOverlay・Model・Tour・KML 2.3 全仕様 | 未着手 |
 | Phase 4 | Earth Pro 製品機能・歴代機能 | 未着手 |

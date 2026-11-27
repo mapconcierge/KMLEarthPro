@@ -376,3 +376,39 @@ describe('upgradeInsecureUrl', async () => {
     expect(upgradeInsecureUrl('blob:http://x/1', 'https:')).toBe('blob:http://x/1')
   })
 })
+
+describe('KMZ の往復（同梱ファイルの保持）', async () => {
+  const { readKmlFile, writeKmz } = await import('./kmz')
+  const { unzipSync } = await import('fflate')
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])
+  const model = new Uint8Array([9, 8, 7])
+  const kml =
+    '<kml><Document><Style id="s"><IconStyle><Icon><href>files/pin.png</href></Icon></IconStyle></Style>' +
+    '<Placemark><name>P</name><styleUrl>#s</styleUrl><Point><coordinates>139,35</coordinates></Point></Placemark></Document></kml>'
+
+  it('writeKmz は doc.kml を先頭に、同梱ファイルをそのまま書き戻す', () => {
+    const bytes = writeKmz(kml, { 'files/pin.png': png, 'models/a.dae': model, 'doc.kml': new Uint8Array([0]) })
+    const z = unzipSync(bytes)
+    expect(Object.keys(z)[0]).toBe('doc.kml')
+    expect(new TextDecoder().decode(z['doc.kml'])).toBe(kml)
+    expect([...z['files/pin.png']]).toEqual([...png])
+    expect([...z['models/a.dae']]).toEqual([...model])
+  })
+
+  it('読み込み → 保存 → 再読み込みで、画像以外も含め中身が変わらない', async () => {
+    const first = writeKmz(kml, { 'files/pin.png': png, 'models/a.dae': model })
+    const r1 = await readKmlFile(new File([first as BlobPart], 'a.kmz'))
+    expect(Object.keys(r1.files).sort()).toEqual(['files/pin.png', 'models/a.dae'])
+    expect(Object.keys(r1.resources)).toEqual(['files/pin.png']) // 描画用の Blob URL は画像だけ
+    const second = writeKmz(serializeKml(parseKml(r1.kml)), r1.files)
+    const r2 = await readKmlFile(new File([second as BlobPart], 'b.kmz'))
+    expect([...r2.files['files/pin.png']]).toEqual([...png])
+    expect([...r2.files['models/a.dae']]).toEqual([...model])
+    expect(parseKml(r2.kml).styles.s.icon?.href).toBe('files/pin.png')
+  })
+
+  it('KML 単体では files は空', async () => {
+    const r = await readKmlFile(new File([kml], 'a.kml'))
+    expect(r.files).toEqual({})
+  })
+})

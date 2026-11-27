@@ -13,10 +13,10 @@ export async function ingestKmlFile(file: File): Promise<void> {
   const id = crypto.randomUUID()
   add({ id, name: file.name, status: 'loading', file })
   try {
-    const { kml, resources } = await readKmlFile(file)
+    const { kml, resources, files } = await readKmlFile(file)
     const doc = parseKml(kml)
     if (doc.warnings.length) console.warn(`[KML] ${file.name}:`, doc.warnings)
-    update(id, { status: 'loaded', name: doc.root.name ?? file.name, doc, resources })
+    update(id, { status: 'loaded', name: doc.root.name ?? file.name, doc, resources, files })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[KML] load failed:', msg)

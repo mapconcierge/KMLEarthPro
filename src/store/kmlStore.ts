@@ -15,6 +15,8 @@ export interface KmlEntry {
   doc?: KmlDocument
   /** KMZ 内リソース（相対パス → Blob URL） */
   resources?: Record<string, string>
+  /** KMZ 内の同梱ファイルの中身。KMZ 保存で書き戻す */
+  files?: Record<string, Uint8Array>
   /** 読み込んだ原本。Cesium の KmlDataSource（NetworkLink 等の完全実装）へ渡す */
   file?: File
 }

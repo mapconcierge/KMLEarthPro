@@ -2,6 +2,7 @@ import { useKmlStore, linkKey, type KmlEntry } from '../store/kmlStore'
 import { readKmlFile } from './kmz'
 import { buildLinkUrl, findNetworkLinks, nextRefreshDelayMs, normalizeArchivePath, resolveHref, type FoundLink, type LinkBase } from './networkLink'
 import { parseKml } from './parse'
+import { regionActive, type RegionView } from './region'
 import { validateKmlSemantics } from './validate'
 
 // NetworkLink の取得・更新を行う。取得した文書は「派生エントリ」として kmlStore へ積み、
@@ -20,6 +21,14 @@ interface Controller {
   link: FoundLink
   entryId: string
   timer?: ReturnType<typeof setTimeout>
+  /** viewRefreshMode=onStop の、カメラ停止後の再取得タイマー */
+  viewTimer?: ReturnType<typeof setTimeout>
+  /** 取得中（重なって取得しない） */
+  loading?: boolean
+  /** 一度でも取得できたか（flyToView は最初の取得だけ） */
+  everLoaded?: boolean
+  /** 最後の取得に使った表示範囲（変わっていなければ onStop で再取得しない） */
+  lastViewKey?: string
   abort?: AbortController
   /** 現在の派生エントリ（更新のたびに作り替える） */
   derivedId?: string
@@ -62,7 +71,26 @@ async function fetchResource(
 }
 
 /** 1 つの NetworkLink を取得して派生エントリを作る。更新の予約もここで行う */
+/** viewBoundScale（既定 1）で、表示範囲を中心から拡縮する */
+function scaledBbox(v: RegionView, scale: number) {
+  const cx = (v.west + v.east) / 2
+  const cy = (v.south + v.north) / 2
+  const hw = ((v.east - v.west) / 2) * scale
+  const hh = ((v.north - v.south) / 2) * scale
+  return { west: Math.max(cx - hw, -180), south: Math.max(cy - hh, -90), east: Math.min(cx + hw, 180), north: Math.min(cy + hh, 90) }
+}
+
+const viewMode = (c: Controller) => c.link.feature.link?.viewRefreshMode ?? 'never'
+
+/** onRegion の NetworkLink が、いま取得してよいか。表示範囲が分からない（2D 以外）ときは有効として扱う */
+function regionOpen(c: Controller): boolean {
+  const view = useKmlStore.getState().view
+  const region = c.link.feature.region
+  return viewMode(c) !== 'onRegion' || !region || !view || regionActive(region, view)
+}
+
 async function load(c: Controller, first: boolean): Promise<void> {
+  if (c.loading) return
   const store = useKmlStore.getState()
   const parent = store.entries.find((e) => e.id === c.entryId)
   const key = linkKey(c.entryId, c.link.path)
@@ -71,6 +99,14 @@ async function load(c: Controller, first: boolean): Promise<void> {
 
   const depth = (parent.depth ?? 0) + 1
   const prev = store.links[key]
+  // viewRefreshMode=onRegion: リージョンの外にいる間は取得せず、すでに取得した内容も外す
+  if (!regionOpen(c)) {
+    if (c.derivedId) removeEntryTree(c.derivedId)
+    c.derivedId = undefined
+    store.setLink(key, { status: 'inactive', message: 'リージョンの外のため取得していません' })
+    return
+  }
+  c.loading = true
   store.setLink(key, { ...prev, status: 'loading' })
   c.abort = new AbortController()
   const timeout = setTimeout(() => c.abort?.abort(), FETCH_TIMEOUT_MS)
@@ -96,8 +132,13 @@ async function load(c: Controller, first: boolean): Promise<void> {
       const dir = target.name.includes('/') ? normalizeArchivePath(target.name.replace(/\/[^/]*$/, '')) : ''
       base = { dir: dir ?? '' }
     } else {
-      // 表示範囲の置換（viewFormat）は段階 3。ここでは httpQuery だけ付ける
-      const url = buildLinkUrl(target.url, link, clientContext(), false)
+      // viewFormat（[bboxWest] など）は、表示範囲に連動するモード（onStop / onRegion）で、範囲が分かるときだけ付ける
+      const view = useKmlStore.getState().view
+      const useView = (viewMode(c) === 'onStop' || viewMode(c) === 'onRegion') && !!view
+      const bbox = view && useView ? scaledBbox(view, link.viewBoundScale && link.viewBoundScale > 0 ? link.viewBoundScale : 1) : undefined
+      // onStop の再取得判定は、拡縮前の表示範囲で比べる（onViewChange と同じ形）
+      c.lastViewKey = view && useView ? [view.west, view.south, view.east, view.north].map((x) => x.toFixed(4)).join(',') : undefined
+      const url = buildLinkUrl(target.url, link, { ...clientContext(), view: bbox }, useView)
       const r = await fetchResource(url, c.abort.signal)
       file = r.file
       headers = r.headers
@@ -126,10 +167,11 @@ async function load(c: Controller, first: boolean): Promise<void> {
       source,
       parent: { id: c.entryId, path: c.link.path },
       // flyToView は NetworkLink を有効にしたとき（最初の 1 回）だけ
-      autoFly: first && c.link.feature.flyToView,
+      autoFly: first && !c.everLoaded && c.link.feature.flyToView,
       depth,
     }
     c.derivedId = derived.id
+    c.everLoaded = true
     useKmlStore.getState().add(derived)
     useKmlStore.getState().setLink(key, { status: 'loaded', fetchedAt: Date.now(), derivedId: derived.id })
 
@@ -148,6 +190,7 @@ async function load(c: Controller, first: boolean): Promise<void> {
     if (delay !== undefined) c.timer = setTimeout(() => void load(c, false), delay)
   } finally {
     clearTimeout(timeout)
+    c.loading = false
   }
 }
 
@@ -156,6 +199,7 @@ function stop(key: string): void {
   if (!c) return
   c.stopped = true
   clearTimeout(c.timer)
+  clearTimeout(c.viewTimer)
   c.abort?.abort()
   controllers.delete(key)
   useKmlStore.getState().setLink(key, null)
@@ -184,7 +228,29 @@ export function startNetworkLinks(): () => void {
     }
     for (const key of [...controllers.keys()]) if (!alive.has(key)) stop(key)
   }
-  const unsub = useKmlStore.subscribe(sync)
+  // 表示範囲が変わったとき: onRegion はリージョンの出入りで取得・解除、onStop は停止後に再取得
+  const onViewChange = () => {
+    const view = useKmlStore.getState().view
+    for (const c of controllers.values()) {
+      const mode = viewMode(c)
+      const link = c.link.feature.link
+      if (mode === 'onRegion') {
+        const open = regionOpen(c)
+        if (open && !c.derivedId && !c.loading) void load(c, true)
+        else if (!open && c.derivedId) void load(c, false) // 外す（load が inactive にする）
+      } else if (mode === 'onStop' && view && c.derivedId) {
+        const key = [view.west, view.south, view.east, view.north].map((x) => x.toFixed(4)).join(',')
+        if (key === c.lastViewKey) continue
+        clearTimeout(c.viewTimer)
+        const sec = link?.viewRefreshTime !== undefined && link.viewRefreshTime >= 0 ? link.viewRefreshTime : 4
+        c.viewTimer = setTimeout(() => void load(c, false), sec * 1000)
+      }
+    }
+  }
+  const unsub = useKmlStore.subscribe((s, prev) => {
+    sync()
+    if (s.view !== prev.view) onViewChange()
+  })
   sync()
   return () => {
     unsub()

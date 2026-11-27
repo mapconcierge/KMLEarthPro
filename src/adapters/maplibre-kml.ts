@@ -284,6 +284,15 @@ export function setKmlHighlight(map: MlMap, id: string, keys: string[]): void {
   map.setFilter(n.hlPoint, geom(['==', ['geometry-type'], 'Point']))
 }
 
+/** 表示する Placemark（kmlPath の集合）だけを地図のソースへ入れ直す。Region による表示切替用 */
+export function setKmlVisibleKeys(map: MlMap, id: string, full: FeatureCollection, keys: Set<string>): void {
+  const src = map.getSource(ids(id).src) as { setData?: (d: FeatureCollection) => void } | undefined
+  src?.setData?.({
+    type: 'FeatureCollection',
+    features: full.features.filter((f) => keys.has(String((f.properties as { kmlPath?: string }).kmlPath))),
+  })
+}
+
 export function removeKmlFromMap(map: MlMap, id: string): void {
   const n = ids(id)
   for (const l of [...(layerIdsByDoc.get(id) ?? [])].reverse()) if (map.getLayer(l)) map.removeLayer(l)

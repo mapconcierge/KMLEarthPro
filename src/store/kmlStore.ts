@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { FeaturePath } from '../kml/target'
 import type { LinkBase } from '../kml/networkLink'
+import type { RegionView } from '../kml/region'
 import type { KmlDocument } from '../kml/types'
 import type { Engine } from './engineStore'
 
@@ -37,7 +38,8 @@ export interface KmlEntry {
 
 /** NetworkLink ごとの取得状態（キーは `${文書 ID}/${フィーチャのパス}`） */
 export interface LinkState {
-  status: 'loading' | 'loaded' | 'error'
+  /** inactive: Region が無効（viewRefreshMode=onRegion でリージョン外）のため取得していない */
+  status: 'loading' | 'loaded' | 'error' | 'inactive'
   message?: string
   /** 最後に取得できた時刻（ms） */
   fetchedAt?: number
@@ -59,6 +61,9 @@ interface KmlState {
   entries: KmlEntry[]
   selection: KmlSelection | null
   links: Record<string, LinkState>
+  /** 2D（MapLibre）が表示中のとき、その表示範囲。Region と NetworkLink の viewRefresh が参照する。他のエンジンでは null */
+  view: RegionView | null
+  setView: (v: RegionView | null) => void
   setLink: (key: string, state: LinkState | null) => void
   select: (sel: KmlSelection | null) => void
   /** エンジンごとの「KML の範囲へ寄る」関数。各ビューが初期化時に登録する */
@@ -73,6 +78,8 @@ export const useKmlStore = create<KmlState>((set) => ({
   entries: [],
   selection: null,
   links: {},
+  view: null,
+  setView: (view) => set({ view }),
   setLink: (key, state) =>
     set((s) => {
       const links = { ...s.links }

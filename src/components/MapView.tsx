@@ -8,10 +8,12 @@ import {
   setWorkerUrl,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { addKmlToMap, kmlLayerIds, removeKmlFromMap, setKmlHighlight } from '../adapters/maplibre-kml'
+import { addKmlToMap, kmlLayerIds, removeKmlFromMap, setKmlHighlight, setKmlVisibleKeys } from '../adapters/maplibre-kml'
 import { resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
+import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './MapView.css'
@@ -125,6 +127,47 @@ export default function MapView() {
     // isStyleLoaded() はタイル読み込み中に false を返し続けるため、初回の load を基準にする。
     // （未ロードのまま return すると、次に store が変わるまで KML が描かれず飛行もしない）
     let ready = false
+    // Region（Lod）による表示切替: 表示範囲が変わるたびに、見える Placemark だけを地図のソースへ入れ直す。
+    // 地図へ最初に入れた全地物を保持し、前回の集合と同じなら入れ直さない
+    const fullData: Record<string, Awaited<ReturnType<typeof addKmlToMap>>> = {}
+    const lastKeys: Record<string, Set<string>> = {}
+    const currentView = (): RegionView | null => {
+      const c = map.getContainer()
+      if (c.clientWidth === 0 || c.clientHeight === 0) return null // 非表示（2D 以外のエンジン表示中）
+      const b = map.getBounds()
+      return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth(), widthPx: c.clientWidth, heightPx: c.clientHeight }
+    }
+    const applyRegions = () => {
+      const view = currentView()
+      if (!view) return
+      const entries = useKmlStore.getState().entries
+      for (const [id, full] of Object.entries(fullData)) {
+        const doc = entries.find((e) => e.id === id)?.doc
+        if (!doc || !hasRegions(doc)) continue
+        const keys = visiblePlacemarkKeys(doc, view)
+        const prev = lastKeys[id]
+        if (prev && prev.size === keys.size && [...keys].every((k) => prev.has(k))) continue
+        lastKeys[id] = keys
+        setKmlVisibleKeys(map, id, full, keys)
+      }
+    }
+    // 他のコンポーネント（NetworkLink の更新）が参照する表示範囲。2D を表示しているときだけ公開する
+    const publishView = () => {
+      const is2d = useEngineStore.getState().engine === '2d-maplibre'
+      useKmlStore.getState().setView(is2d ? currentView() : null)
+    }
+    map.on('moveend', () => {
+      applyRegions()
+      publishView()
+    })
+    const unsubscribeEngine = useEngineStore.subscribe(() => {
+      // 2D へ戻った直後は寸法が確定してから測る
+      requestAnimationFrame(() => {
+        map.resize()
+        applyRegions()
+        publishView()
+      })
+    })
     // 選択中のフィーチャを強調する（選択した文書以外は消す）
     const applyHighlight = () => {
       const { selection, entries } = useKmlStore.getState()
@@ -141,7 +184,7 @@ export default function MapView() {
           // アイコン読み込み中の重複登録を防ぐため先に印を付ける
           rendered[e.id] = true
           const entryId = e.id
-          void addKmlToMap(map, entryId, e.doc, e.resources).then(() => {
+          void addKmlToMap(map, entryId, e.doc, e.resources).then((fc) => {
             // 読み込み中に削除されていたら後始末する
             if (!useKmlStore.getState().entries.some((x) => x.id === entryId)) {
               removeKmlFromMap(map, entryId)
@@ -149,6 +192,9 @@ export default function MapView() {
               return
             }
             rendered[entryId] = true
+            fullData[entryId] = fc
+            delete lastKeys[entryId]
+            applyRegions()
             applyHighlight()
             if (e.autoFly !== false) flyToKml(entryId, undefined, 1500)
           })
@@ -158,11 +204,14 @@ export default function MapView() {
         if (!entries.some((e) => e.id === id)) {
           removeKmlFromMap(map, id)
           delete rendered[id]
+          delete fullData[id]
+          delete lastKeys[id]
         }
       }
     }
     map.on('load', () => {
       ready = true
+      publishView()
       syncKml()
     })
     const unsubscribeKml = useKmlStore.subscribe((state, prev) => {
@@ -199,6 +248,8 @@ export default function MapView() {
     return () => {
       resizeObserver.disconnect()
       unsubscribeKml()
+      unsubscribeEngine()
+      useKmlStore.getState().setView(null)
       useKmlStore.getState().registerFlyer('2d-maplibre', null)
       usePlaceStore.getState().registerFlier('2d-maplibre', null)
       map.remove()

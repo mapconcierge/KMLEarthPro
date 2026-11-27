@@ -139,7 +139,7 @@ function LinkNode({ entryId, path, label, cls, canFly, fly, liRef }: LinkNodePro
     if (derived && sel?.id === derived.id) setOpen(true)
   }, [sel, derived])
   const status =
-    !state ? '' : state.status === 'loading' ? '読み込み中…' : state.status === 'error' ? 'エラー' : ''
+    !state ? '' : state.status === 'loading' ? '読み込み中…' : state.status === 'error' ? 'エラー' : state.status === 'inactive' ? 'リージョン外' : ''
   return (
     <li className="kml-tree-item" ref={liRef}>
       <div className="kml-tree-folder">

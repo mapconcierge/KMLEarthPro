@@ -521,3 +521,40 @@ describe('NetworkLink の解決・更新（純関数）', async () => {
     expect(nl.findNetworkLinks(d).map((x) => [x.path, x.feature.name])).toEqual([[[0], 'a'], [[4, 0], 'in']])
   })
 })
+
+describe('Region の判定（純関数）', async () => {
+  const rg = await import('./region')
+  // 経度 10 度 × 緯度ほぼ 10 度（赤道付近）、1000×1000 px の表示
+  const view = { west: 0, south: -5, east: 10, north: 5, widthPx: 1000, heightPx: 1000 }
+  const box = (w: number, s: number, e: number, n: number) => ({ north: n, south: s, east: e, west: w, altitudeMode: 'clampToGround' as const })
+
+  it('regionPixelSize: 表示範囲いっぱいなら画面の大きさ、1/10 なら約 100 px', () => {
+    expect(rg.regionPixelSize(box(0, -5, 10, 5), view)).toBeCloseTo(1000, 0)
+    expect(rg.regionPixelSize(box(0, 0, 1, 0.5), view)).toBeGreaterThan(40)
+    expect(rg.regionPixelSize(box(0, -0.5, 1, 0.5), view)).toBeCloseTo(100, -1)
+  })
+  it('regionActive: 範囲が表示範囲の外なら無効', () => {
+    expect(rg.regionActive({ box: box(20, 0, 21, 1) }, view)).toBe(false)
+    expect(rg.regionActive({ box: box(1, 1, 2, 2) }, view)).toBe(true) // Lod 無しは重なれば有効
+  })
+  it('regionActive: Lod の下限・上限（上限 -1 は無制限）', () => {
+    const b = box(0, -0.5, 1, 0.5) // 約 100 px
+    expect(rg.regionActive({ box: b, lod: { minLodPixels: 128, maxLodPixels: -1, minFadeExtent: 0, maxFadeExtent: 0 } }, view)).toBe(false)
+    expect(rg.regionActive({ box: b, lod: { minLodPixels: 50, maxLodPixels: -1, minFadeExtent: 0, maxFadeExtent: 0 } }, view)).toBe(true)
+    expect(rg.regionActive({ box: b, lod: { minLodPixels: 50, maxLodPixels: 80, minFadeExtent: 0, maxFadeExtent: 0 } }, view)).toBe(false)
+    expect(rg.regionActive({ box: b, lod: { minLodPixels: 50, maxLodPixels: 200, minFadeExtent: 0, maxFadeExtent: 0 } }, view)).toBe(true)
+  })
+  it('visiblePlacemarkKeys: 祖先の Region が無効なら配下は出ない。visibility=0 も除く', () => {
+    const d = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+      <Placemark><name>always</name><Point><coordinates>1,1</coordinates></Point></Placemark>
+      <Folder><Region><LatLonAltBox><north>0.5</north><south>-0.5</south><east>1</east><west>0</west></LatLonAltBox><Lod><minLodPixels>500</minLodPixels></Lod></Region>
+        <Placemark><name>needs big</name><Point><coordinates>0.5,0</coordinates></Point></Placemark></Folder>
+      <Folder><Placemark><visibility>0</visibility><Point><coordinates>2,2</coordinates></Point></Placemark>
+        <Placemark><name>shown</name><Point><coordinates>2,2</coordinates></Point></Placemark></Folder>
+    </Document></kml>`)
+    expect([...rg.visiblePlacemarkKeys(d, view)].sort()).toEqual(['0', '2/1'])
+    const zoomed = { west: 0, south: -0.5, east: 1, north: 0.5, widthPx: 1000, heightPx: 1000 } // Region が約 1000 px
+    expect([...rg.visiblePlacemarkKeys(d, zoomed)].sort()).toEqual(['0', '1/0', '2/1'])
+    expect(rg.hasRegions(d)).toBe(true)
+  })
+})

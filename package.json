@@ -19,8 +19,8 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
-    "@navaramap/three": "0.1.1",
-    "@navaramap/three-default-plugin": "0.1.1",
+    "@navaramap/three": "0.3.1",
+    "@navaramap/three-default-plugin": "0.3.1",
     "cesium": "^1.147.0",
     "fflate": "^0.8.3",
     "maplibre-gl": "^6.19.0",

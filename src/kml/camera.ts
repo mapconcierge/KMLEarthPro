@@ -123,9 +123,14 @@ export interface CenterZoomView {
   pitch: number
 }
 
-// MapLibre の縦画角は約 36.87°（0.6435 rad）。tan(fov/2) = 1/3 なので、
-// カメラから中心までの距離は画面高さの 1.5 倍（px）になる
-const ML_CAMERA_TO_CENTER_PX_PER_VIEWPORT_PX = 1.5
+/**
+ * 3 エンジン共通の縦画角（度）。Navara は 50°、Cesium は標準の横 60°（縦横比 1.289 で縦 48.3°）、MapLibre は 36.87° と
+ * 画角がばらばらで、同じカメラ位置でも見える範囲と大きさが一致しなかった（Issue #9）。
+ * Navara にそろえ、MapLibre は setVerticalFieldOfView、Cesium は縦横比から横画角を求めて設定する。
+ */
+export const VERTICAL_FOV_DEG = 50
+// tan(fov/2) で、カメラから中心までの距離は画面高さの 0.5 / tan(fov/2) 倍（px）になる（50° で約 1.072）
+const ML_CAMERA_TO_CENTER_PX_PER_VIEWPORT_PX = 0.5 / Math.tan((VERTICAL_FOV_DEG * Math.PI) / 360)
 // 512px タイルでの zoom 0 の地上解像度（赤道, m/px）
 const ML_METERS_PER_PX_Z0 = 78271.517
 /** Camera（水平に近い視線）で地面に当たらない/遠すぎるときに使う注視距離の上限（m） */
@@ -173,4 +178,139 @@ export function viewToCenterZoom(
   const metersPerPx = distance / (ML_CAMERA_TO_CENTER_PX_PER_VIEWPORT_PX * Math.max(viewportHeightPx, 1))
   const zoom = Math.log2((ML_METERS_PER_PX_Z0 * Math.cos((lat * Math.PI) / 180)) / metersPerPx)
   return { center: [lng, lat], zoom: Math.min(Math.max(zoom, 0), 22), bearing: pose.heading, pitch: Math.min(tilt, maxPitch) }
+}
+
+// ---- カメラ位置 ⇄ MapLibre の「中心 + ズーム + 方位 + 傾き」（球面で視線と地面の交点を求める版） ----
+// 局所平面近似の viewToCenterZoom は KML の視点向け。こちらは地球全体（高度 数千 km）から地上まで同じ式で換算し、
+// エンジンを切り替えたときにカメラ位置と画角を一致させるために使う。
+
+const EARTH_R = 6_371_008.8
+type V3 = [number, number, number]
+const rad = (d: number) => (d * Math.PI) / 180
+const deg = (r: number) => (r * 180) / Math.PI
+const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+const scale = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k]
+const add = (...vs: V3[]): V3 => vs.reduce((acc, v) => [acc[0] + v[0], acc[1] + v[1], acc[2] + v[2]] as V3, [0, 0, 0] as V3)
+
+/** 経緯度の地点での、東・北・上の単位ベクトル（地心直交座標） */
+function enuBasis(lngDeg: number, latDeg: number): { e: V3; n: V3; u: V3 } {
+  const lo = rad(lngDeg)
+  const la = rad(latDeg)
+  return {
+    e: [-Math.sin(lo), Math.cos(lo), 0],
+    n: [-Math.sin(la) * Math.cos(lo), -Math.sin(la) * Math.sin(lo), Math.cos(la)],
+    u: [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)],
+  }
+}
+
+function toLngLat(v: V3): [number, number] {
+  return [deg(Math.atan2(v[1], v[0])), deg(Math.atan2(v[2], Math.hypot(v[0], v[1])))]
+}
+
+/** 地面（標高を返す関数で決まる高さの球面）の標高。引けなければ 0 m */
+export type GroundHeight = (lng: number, lat: number) => number
+
+/**
+ * カメラから視線を伸ばして地面に当たる点と、そこまでの距離（m）。
+ * 地面は半径 EARTH_R + 標高 の球面とし、交点の標高で 1 回やり直す。当たらない（水平より上・地球の外れ）ときは null
+ */
+export function groundIntersection(
+  pose: Pick<CameraPose, 'lng' | 'lat' | 'height' | 'heading' | 'pitch'>,
+  groundAt: GroundHeight = () => 0,
+): { lng: number; lat: number; distance: number } | null {
+  const { e, n, u } = enuBasis(pose.lng, pose.lat)
+  const c = scale(u, EARTH_R + pose.height)
+  const h = rad(pose.heading)
+  const p = rad(pose.pitch)
+  const d = add(scale(e, Math.sin(h) * Math.cos(p)), scale(n, Math.cos(h) * Math.cos(p)), scale(u, Math.sin(p)))
+  let g = groundAt(pose.lng, pose.lat)
+  let hit: { lng: number; lat: number; distance: number } | null = null
+  for (let i = 0; i < 2; i++) {
+    const rg = EARTH_R + g
+    const b = dot(c, d)
+    const disc = b * b - (dot(c, c) - rg * rg)
+    if (disc < 0) return null
+    const t = -b - Math.sqrt(disc)
+    if (!(t > 0)) return null
+    const [lng, lat] = toLngLat(add(c, scale(d, t)))
+    hit = { lng, lat, distance: t }
+    g = groundAt(lng, lat)
+  }
+  return hit
+}
+
+/** 水平に近い視線（伏角が浅い）で地面に当たらない/遠すぎるときの注視距離の上限は MAX_GROUND_DISTANCE_M を使う */
+const NEAR_HORIZONTAL_PITCH_DEG = -5
+
+/**
+ * カメラ位置 → MapLibre の中心・ズーム・方位・傾き。viewportHeightPx は地図の表示高さ（px）。
+ * groundAt は地面の楕円体高（地形標高 + ジオイド高）。水平に近い視線は、注視距離を MAX_GROUND_DISTANCE_M として水平に進めた点を中心にする
+ */
+export function poseToCenterZoom(
+  pose: Pick<CameraPose, 'lng' | 'lat' | 'height' | 'heading' | 'pitch'>,
+  viewportHeightPx: number,
+  groundAt: GroundHeight = () => 0,
+  maxPitch = 85,
+): CenterZoomView {
+  let center: [number, number]
+  let distance: number
+  const hit = pose.pitch > NEAR_HORIZONTAL_PITCH_DEG ? null : groundIntersection(pose, groundAt)
+  if (hit) {
+    center = [hit.lng, hit.lat]
+    distance = hit.distance
+  } else {
+    distance = MAX_GROUND_DISTANCE_M
+    const horizontal = distance * Math.cos(rad(pose.pitch))
+    const h = rad(pose.heading)
+    center = [
+      pose.lng + (horizontal * Math.sin(h)) / (M_PER_DEG_LON_EQ * Math.cos(rad(pose.lat))),
+      pose.lat + (horizontal * Math.cos(h)) / M_PER_DEG_LAT,
+    ]
+  }
+  const metersPerPx = distance / (ML_CAMERA_TO_CENTER_PX_PER_VIEWPORT_PX * Math.max(viewportHeightPx, 1))
+  const zoom = Math.log2((ML_METERS_PER_PX_Z0 * Math.cos(rad(center[1]))) / metersPerPx)
+  return {
+    center,
+    zoom: Math.min(Math.max(zoom, 0), 22),
+    bearing: pose.heading,
+    pitch: Math.min(Math.max(pose.pitch + 90, 0), maxPitch),
+  }
+}
+
+/**
+ * MapLibre の中心・ズーム・方位・傾き → カメラ位置（poseToCenterZoom の逆）。
+ * まず局所平面で位置を見積もり、順方向の結果（交点と距離）との差で位置を補正する（数回で収束）
+ */
+export function centerZoomToPose(
+  view: CenterZoomView,
+  viewportHeightPx: number,
+  groundAt: GroundHeight = () => 0,
+): CameraPose {
+  const [lng, lat] = view.center
+  const metersPerPx = (ML_METERS_PER_PX_Z0 * Math.cos(rad(lat))) / 2 ** view.zoom
+  const distance = metersPerPx * ML_CAMERA_TO_CENTER_PX_PER_VIEWPORT_PX * Math.max(viewportHeightPx, 1)
+  const tilt = rad(Math.min(Math.max(view.pitch, 0), 90))
+  const h = rad(view.bearing)
+  const horizontal = distance * Math.sin(tilt)
+  const pose: CameraPose = {
+    lng: lng - (horizontal * Math.sin(h)) / (M_PER_DEG_LON_EQ * Math.cos(rad(lat))),
+    lat: lat - (horizontal * Math.cos(h)) / M_PER_DEG_LAT,
+    height: groundAt(lng, lat) + distance * Math.cos(tilt),
+    heading: view.bearing,
+    pitch: view.pitch - 90,
+    roll: 0,
+  }
+  if (view.pitch >= 90 + NEAR_HORIZONTAL_PITCH_DEG) return pose // 水平に近い視線は地面との交点が定まらない
+  for (let i = 0; i < 8; i++) {
+    const hit = groundIntersection(pose, groundAt)
+    if (!hit) break
+    const dLng = lng - hit.lng
+    const dLat = lat - hit.lat
+    const dDist = distance - hit.distance
+    if (Math.abs(dLng) < 1e-10 && Math.abs(dLat) < 1e-10 && Math.abs(dDist) < 1e-3) break
+    pose.lng += dLng
+    pose.lat += dLat
+    pose.height += -dDist * Math.sin(rad(pose.pitch))
+  }
+  return pose
 }

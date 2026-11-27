@@ -1,4 +1,4 @@
-import { findInitialView } from './camera'
+import { findInitialView, VERTICAL_FOV_DEG } from './camera'
 import { childrenOf, type AbstractView, type Coord, type Feature, type Geometry, type KmlDocument, type LookAt, type Placemark } from './types'
 
 /** [west, south, east, north]（度）。日付変更線をまたぐ範囲は扱わない */
@@ -62,8 +62,8 @@ const M_PER_DEG_LON_EQ = 111_320
 /** 範囲が点（広がりなし）のときの注視距離（m） */
 const POINT_RANGE_M = 800
 const MIN_RANGE_M = 300
-/** 縦画角 ≈ 36.87° のとき、距離 R で画面の縦に収まる長さは 2R·tan(18.4°) ≈ 0.667R */
-const VISIBLE_HEIGHT_PER_RANGE = 0.667
+/** 縦画角 50° のとき、距離 R で画面の縦に収まる長さは 2R·tan(25°) ≈ 0.933R */
+const VISIBLE_HEIGHT_PER_RANGE = 2 * Math.tan((VERTICAL_FOV_DEG * Math.PI) / 360)
 /** 範囲に足す余白（30%。点のアイコン・ラベルが端で切れないように）と、表示領域のアスペクト比（幅/高さ）が分からないときの想定値 */
 const FIT_MARGIN = 1.3
 const DEFAULT_ASPECT = 1.6

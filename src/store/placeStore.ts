@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { CameraPose } from '../kml/camera'
 import type { Engine } from './engineStore'
 
 export interface Place {
@@ -6,7 +7,7 @@ export interface Place {
   name: string
   lng: number
   lat: number
-  /** 楕円体高（m）。2D エンジンはこれを使わずズームで寄る */
+  /** カメラの楕円体高（m）。MapLibre は kml/camera.ts の換算でズームに直す */
   height: number
 }
 
@@ -24,6 +25,19 @@ export const FAVORITE_PLACES: Place[] = [
   { id: 'milan', name: 'ミラノ', lng: 9.1917, lat: 45.464, height: 1500 },
   { id: 'paris', name: 'パリ', lng: 2.2945, lat: 48.8584, height: 1500 },
 ]
+
+/** 「場所」から飛んだときの伏角（水平=0・真下=-90）。3 エンジン共通 */
+export const PLACE_PITCH_DEG = -35
+
+/** 場所へ飛ぶときのカメラ位置。place.height に place の経緯度のまま置き、真北へ PLACE_PITCH_DEG で見る（3 エンジン共通） */
+export const placeToPose = (p: Place): CameraPose => ({
+  lng: p.lng,
+  lat: p.lat,
+  height: p.height,
+  heading: 0,
+  pitch: PLACE_PITCH_DEG,
+  roll: 0,
+})
 
 /** カメラ移動にかける時間 */
 export const FLY_DURATION_MS = 3000

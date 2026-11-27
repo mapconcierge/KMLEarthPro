@@ -6,10 +6,12 @@ import { navaraRegionView } from '../adapters/navara-view'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
-import { INITIAL_HEIGHT_3D, INITIAL_LAT, INITIAL_LNG } from '../store/initialCamera'
+import { VERTICAL_FOV_DEG } from '../kml/camera'
+import { normalizeHeading, useCameraStore } from '../store/cameraStore'
+import { INITIAL_POSE } from '../store/initialCamera'
 import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
-import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
+import { FLY_DURATION_MS, PLACE_PITCH_DEG, usePlaceStore } from '../store/placeStore'
 import './NavaraView.css'
 
 type InitState = 'idle' | 'loading' | 'ready' | 'error' | 'needs-reload'
@@ -50,8 +52,6 @@ const BUILDINGS_REMOVE_ZOOM = 12
 // 夜側で建物が黒く潰れないように足す環境光の強さ
 const BUILDING_AMBIENT_INTENSITY = 0.6
 
-// 「場所」から飛んだときの伏角。pitch は nose up positive なので負で見下ろす
-const PLACE_PITCH = -35
 
 export default function NavaraView({ visible }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,7 +97,18 @@ export default function NavaraView({ visible }: Props) {
       view.addLight({ ambient: { intensity: BUILDING_AMBIENT_INTENSITY } })
 
       // pitch は nose up positive → -90 で真下（地球俯瞰）、heading 0 で北が上
-      view.setCamera({ lng: INITIAL_LNG, lat: INITIAL_LAT, height: INITIAL_HEIGHT_3D, pitch: -90, heading: 0 })
+      view.camera.fov = VERTICAL_FOV_DEG // 縦画角は 3 エンジン共通（Issue #9）
+      view.setCamera({ lng: INITIAL_POSE.lng, lat: INITIAL_POSE.lat, height: INITIAL_POSE.height, pitch: INITIAL_POSE.pitch, heading: INITIAL_POSE.heading })
+      // エンジン切替でカメラ位置を引き継ぐための窓口（登録時に、保留されていたカメラがあれば適用される）
+      useCameraStore.getState().register('3d-navara', {
+        get: () => {
+          const g = view.camera.positionGeographic
+          const o = view.camera.orientation
+          if (o.pitch === undefined || o.heading === undefined) return null
+          return { lng: g.lng, lat: g.lat, height: g.height, heading: normalizeHeading(o.heading), pitch: o.pitch, roll: 0 }
+        },
+        set: (pose) => view.setCamera({ lng: pose.lng, lat: pose.lat, height: pose.height, pitch: pose.pitch, heading: pose.heading }),
+      })
 
       // 標高タイルを地球表面として描画する
       const dem = view.addSource({
@@ -164,7 +175,7 @@ export default function NavaraView({ visible }: Props) {
       usePlaceStore.getState().registerFlier('3d-navara', (place) => {
         // 割り込まれると false で解決する。巡回では想定内なので結果は見ない
         void view.flyTo(
-          { lng: place.lng, lat: place.lat, height: place.height, pitch: PLACE_PITCH, heading: 0 },
+          { lng: place.lng, lat: place.lat, height: place.height, pitch: PLACE_PITCH_DEG, heading: 0 },
           { duration: FLY_DURATION_MS },
         )
       })

@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import { resolveAbsoluteView } from '../kml/camera'
+import { resolveAbsoluteView, VERTICAL_FOV_DEG } from '../kml/camera'
 import { kmlToGeoJson } from '../adapters/maplibre-kml'
 import { placemarkKeys, placemarkLocator, resolveFlyView, type FeaturePath } from '../kml/target'
 import { prepareForCesium } from '../kml/cesium-prep'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
-import { INITIAL_HEIGHT_3D, INITIAL_LAT, INITIAL_LNG } from '../store/initialCamera'
+import { normalizeHeading, useCameraStore } from '../store/cameraStore'
+import { INITIAL_POSE } from '../store/initialCamera'
 import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
-import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
+import { FLY_DURATION_MS, PLACE_PITCH_DEG, usePlaceStore } from '../store/placeStore'
 import { MvtImageryProvider } from './MvtImageryProvider'
 import './CesiumView.css'
 
@@ -88,7 +89,6 @@ interface PlateauEntry {
 }
 
 // 「場所」から飛んだときの伏角
-const PLACE_PITCH = -35
 
 /**
  * OpenFreeMap のベクタータイルを Cesium のイメージャリレイヤーとして重ねる。
@@ -360,8 +360,37 @@ export default function CesiumView({ visible }: Props) {
       viewerRef.current = viewer
       // 初期カメラは日本の上空（真下、北が上）
       viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(INITIAL_LNG, INITIAL_LAT, INITIAL_HEIGHT_3D),
-        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+        destination: Cesium.Cartesian3.fromDegrees(INITIAL_POSE.lng, INITIAL_POSE.lat, INITIAL_POSE.height),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(INITIAL_POSE.pitch), roll: 0 },
+      })
+      // 縦画角を 3 エンジン共通の 50° にそろえる（Issue #9）。Cesium の fov は「長い辺」の画角（横長なら横）なので、
+      // 縦横比に応じて毎フレーム求め直す（ウィンドウの形が変わっても縦画角が変わらない）
+      const halfV = Math.tan(Cesium.Math.toRadians(VERTICAL_FOV_DEG) / 2)
+      viewer.scene.preUpdate.addEventListener(() => {
+        const frustum = viewer.camera.frustum as import('cesium').PerspectiveFrustum
+        const aspect = viewer.canvas.clientWidth / Math.max(viewer.canvas.clientHeight, 1)
+        const fov = 2 * Math.atan(halfV * Math.max(aspect, 1))
+        if (Math.abs((frustum.fov ?? 0) - fov) > 1e-9) frustum.fov = fov
+      })
+      // エンジン切替でカメラ位置を引き継ぐための窓口（登録時に、保留されていたカメラがあれば適用される）
+      useCameraStore.getState().register('3d-cesium', {
+        get: () => {
+          const c = viewer.camera
+          const p = c.positionCartographic
+          return {
+            lng: Cesium.Math.toDegrees(p.longitude),
+            lat: Cesium.Math.toDegrees(p.latitude),
+            height: p.height,
+            heading: normalizeHeading(Cesium.Math.toDegrees(c.heading)),
+            pitch: Cesium.Math.toDegrees(c.pitch),
+            roll: 0,
+          }
+        },
+        set: (pose) =>
+          viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(pose.lng, pose.lat, pose.height),
+            orientation: { heading: Cesium.Math.toRadians(pose.heading), pitch: Cesium.Math.toRadians(pose.pitch), roll: 0 },
+          }),
       })
 
       // 地形を有効にすると地表の裏側の地物が透けて見えるため、深度テストを有効にする
@@ -380,7 +409,7 @@ export default function CesiumView({ visible }: Props) {
           destination: Cesium.Cartesian3.fromDegrees(place.lng, place.lat, place.height),
           orientation: {
             heading: 0,
-            pitch: Cesium.Math.toRadians(PLACE_PITCH),
+            pitch: Cesium.Math.toRadians(PLACE_PITCH_DEG),
             roll: 0,
           },
           duration: FLY_DURATION_MS / 1000,

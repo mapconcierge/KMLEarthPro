@@ -7,12 +7,15 @@ import Sidebar from './components/Sidebar'
 import Statusbar from './components/Statusbar'
 import { useEngineStore } from './store/engineStore'
 import { startNetworkLinks } from './kml/linkManager'
+import { startCameraSync } from './store/cameraStore'
 import './App.css'
 
 export default function App() {
   const engine = useEngineStore((s) => s.engine)
   // NetworkLink の取得・更新（文書が kmlStore に入ると始まる）
   useEffect(() => startNetworkLinks(), [])
+  // エンジンを切り替えたとき、カメラ位置を引き継ぐ（Issue #9）
+  useEffect(() => startCameraSync(), [])
 
   return (
     <div className="app-layout">

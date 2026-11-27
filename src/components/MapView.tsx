@@ -9,14 +9,16 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { addKmlToMap, kmlLayerIds, removeKmlFromMap, setKmlHighlight, setKmlVisibleKeys } from '../adapters/maplibre-kml'
-import { resolveAbsoluteView, viewToCenterZoom } from '../kml/camera'
+import { geoidHeight, geoidHeightCached } from '../adapters/geoid'
+import { centerZoomToPose, poseToCenterZoom, resolveAbsoluteView, VERTICAL_FOV_DEG, viewToCenterZoom } from '../kml/camera'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { useEngineStore } from '../store/engineStore'
-import { INITIAL_LAT, INITIAL_LNG, INITIAL_ZOOM_2D } from '../store/initialCamera'
+import { useCameraStore } from '../store/cameraStore'
+import { INITIAL_POSE } from '../store/initialCamera'
 import { useKmlStore } from '../store/kmlStore'
-import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
+import { FLY_DURATION_MS, placeToPose, usePlaceStore } from '../store/placeStore'
 import './MapView.css'
 
 // MapLibre 6 が既定で組み立てるワーカー URL はバンドル後に解決できず
@@ -28,11 +30,6 @@ setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`)
 const MAPTERHORN_TILEJSON = 'https://tiles.mapterhorn.com/tilejson.json'
 const TERRAIN_SOURCE = 'mapterhorn'
 
-// 「場所」から飛んだときの見えかた。3D エンジンの高度 1,500m・伏角 35° に
-// おおよそ合わせる（MapLibre の pitch は真下が 0 なので 90 から引く）
-const PLACE_ZOOM = 15
-const PLACE_PITCH = 55
-
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
@@ -41,14 +38,18 @@ export default function MapView() {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
+    // 初期カメラは 3 エンジン共通のカメラ位置（日本の上空）から換算する（Issue #9）
+    const initial = poseToCenterZoom(INITIAL_POSE, containerRef.current.clientHeight)
     const map = new Map({
       container: containerRef.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [INITIAL_LNG, INITIAL_LAT],
-      zoom: INITIAL_ZOOM_2D,
+      center: initial.center,
+      zoom: initial.zoom,
       // 既定の 60° では地形を横から見渡せないため引き上げる
       maxPitch: 85,
     })
+    // 縦画角を Navara / Cesium と同じ 50° にそろえる（既定は 36.87°）
+    map.setVerticalFieldOfView(VERTICAL_FOV_DEG)
     mapRef.current = map
 
     map.on('load', () => {
@@ -77,14 +78,71 @@ export default function MapView() {
     map.addControl(new TerrainControl({ source: TERRAIN_SOURCE, exaggeration: 1 }), 'top-right')
     map.addControl(new ScaleControl(), 'bottom-right')
 
-    usePlaceStore.getState().registerFlier('2d-maplibre', (place) => {
-      map.flyTo({
-        center: [place.lng, place.lat],
-        zoom: PLACE_ZOOM,
-        pitch: PLACE_PITCH,
-        bearing: 0,
-        duration: FLY_DURATION_MS,
+    // 3 エンジンのカメラ位置をそろえるための換算（kml/camera.ts の poseToCenterZoom / centerZoomToPose）。
+    // 地面の楕円体高 = MapLibre の地形標高（ジオイド基準）+ ジオイド高 N。N は取得済みのものを使い、無ければ直前の値
+    let lastGeoid = 0
+    const groundAt = (n: number) => (lng: number, lat: number) => {
+      try {
+        return (map.queryTerrainElevation([lng, lat]) ?? 0) + n
+      } catch {
+        return n
+      }
+    }
+    const prefetchGeoid = () => {
+      const c = map.getCenter()
+      void geoidHeight(c.lng, c.lat).then((v) => {
+        if (v !== undefined) lastGeoid = v
       })
+    }
+    // 表示領域の高さが決まるまで待つ（エンジン切替の直後は 0 のことがある）
+    const waitForSize = async () => {
+      for (let i = 0; i < 90 && map.getContainer().clientHeight === 0; i++) await new Promise((r) => requestAnimationFrame(r))
+      map.resize()
+      return map.getContainer().clientHeight
+    }
+    const geoidOrZero = async (lng: number, lat: number) =>
+      (await Promise.race([geoidHeight(lng, lat), new Promise<undefined>((r) => setTimeout(r, 2500))])) ?? lastGeoid
+    // 地形（DEM）が読み込まれてから、引けた標高で同じカメラ位置を置き直す（利用者が動かした後は何もしない）。
+    // DEM が未取得のあいだは標高を 0 m として換算するため、最初の換算は地面の高さの分だけずれる
+    const refineWhenIdle = (pose: Parameters<typeof poseToCenterZoom>[0], h: number, n: number, first: ReturnType<typeof poseToCenterZoom>) => {
+      map.once('idle', () => {
+        const c = map.getCenter()
+        const unmoved =
+          Math.abs(c.lng - first.center[0]) < 1e-4 && Math.abs(c.lat - first.center[1]) < 1e-4 && Math.abs(map.getZoom() - first.zoom) < 0.01
+        if (!unmoved) return
+        const v = poseToCenterZoom(pose, h, groundAt(n), 85)
+        map.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing, pitch: v.pitch })
+      })
+    }
+    useCameraStore.getState().register('2d-maplibre', {
+      get: () => {
+        const h = map.getContainer().clientHeight
+        if (!h) return null
+        const c = map.getCenter()
+        const n = geoidHeightCached(c.lng, c.lat) ?? lastGeoid
+        return centerZoomToPose(
+          { center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() },
+          h,
+          groundAt(n),
+        )
+      },
+      set: async (pose) => {
+        const h = await waitForSize()
+        if (!h) return
+        const n = await geoidOrZero(pose.lng, pose.lat)
+        const first = poseToCenterZoom(pose, h, groundAt(n), 85)
+        map.jumpTo({ center: first.center, zoom: first.zoom, bearing: first.bearing, pitch: first.pitch })
+        refineWhenIdle(pose, h, n, first)
+      },
+    })
+    map.on('moveend', prefetchGeoid)
+
+    usePlaceStore.getState().registerFlier('2d-maplibre', async (place) => {
+      const pose = placeToPose(place)
+      const [h, n] = await Promise.all([waitForSize(), geoidOrZero(pose.lng, pose.lat)])
+      const v = poseToCenterZoom(pose, h, groundAt(n), 85)
+      map.flyTo({ center: v.center, zoom: v.zoom, pitch: v.pitch, bearing: v.bearing, duration: FLY_DURATION_MS })
+      map.once('moveend', () => refineWhenIdle(pose, h, n, v))
     })
 
     // KML: kmlStore の文書を購読して描画する。エンジン切替後も文書は store に残るので、
@@ -211,6 +269,11 @@ export default function MapView() {
       }
     }
     map.on('load', () => {
+      // 初期カメラは、表示領域の高さが確定したこの時点の値で置き直す（コンストラクタの時点では未確定のことがある）
+      if (map.getZoom() === initial.zoom) {
+        const v = poseToCenterZoom(INITIAL_POSE, map.getContainer().clientHeight)
+        map.jumpTo({ center: v.center, zoom: v.zoom })
+      }
       ready = true
       publishView()
       syncKml()
@@ -252,6 +315,7 @@ export default function MapView() {
       unsubscribeEngine()
       useKmlStore.getState().setView(null)
       useKmlStore.getState().registerFlyer('2d-maplibre', null)
+      useCameraStore.getState().register('2d-maplibre', null)
       usePlaceStore.getState().registerFlier('2d-maplibre', null)
       map.remove()
       mapRef.current = null

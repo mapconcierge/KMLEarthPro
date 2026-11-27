@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>points</name>
+    <Placemark id="p1">
+      <name>Clamped point</name>
+      <description>plain text</description>
+      <Point><coordinates>139.7016,35.658,0</coordinates></Point>
+    </Placemark>
+    <Placemark id="p2">
+      <name>Extruded point</name>
+      <Point>
+        <extrude>1</extrude>
+        <altitudeMode>relativeToGround</altitudeMode>
+        <coordinates>139.7040,35.660,50</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>

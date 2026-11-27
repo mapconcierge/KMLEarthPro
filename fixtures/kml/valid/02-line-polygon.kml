@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>line and polygon</name>
+    <Placemark>
+      <name>Line</name>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>139.700,35.656,0 139.706,35.656,0 139.708,35.660,0</coordinates>
+      </LineString>
+    </Placemark>
+    <Placemark>
+      <name>Polygon with hole</name>
+      <Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          139.70,35.65,0 139.72,35.65,0 139.72,35.67,0 139.70,35.67,0 139.70,35.65,0
+        </coordinates></LinearRing></outerBoundaryIs>
+        <innerBoundaryIs><LinearRing><coordinates>
+          139.707,35.657,0 139.713,35.657,0 139.713,35.663,0 139.707,35.663,0 139.707,35.657,0
+        </coordinates></LinearRing></innerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

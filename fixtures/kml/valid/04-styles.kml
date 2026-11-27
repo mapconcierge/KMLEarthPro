@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>styles</name>
+    <Style id="pin">
+      <IconStyle>
+        <color>ff0000ff</color>
+        <scale>1.5</scale>
+        <Icon><href>https://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href></Icon>
+        <hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+      </IconStyle>
+      <LabelStyle><color>ff00ffff</color><scale>1.2</scale></LabelStyle>
+      <BalloonStyle><text>&lt;b&gt;$[name]&lt;/b&gt; $[description]</text></BalloonStyle>
+    </Style>
+    <Style id="area">
+      <LineStyle><color>ff00ff00</color><width>3</width></LineStyle>
+      <PolyStyle><color>7f00ff00</color><fill>1</fill><outline>1</outline></PolyStyle>
+    </Style>
+    <StyleMap id="pinmap">
+      <Pair><key>normal</key><styleUrl>#pin</styleUrl></Pair>
+      <Pair><key>highlight</key><styleUrl>#pin</styleUrl></Pair>
+    </StyleMap>
+    <Placemark>
+      <name>styled by map</name>
+      <styleUrl>#pinmap</styleUrl>
+      <Point><coordinates>139.70,35.65</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>inline style</name>
+      <Style><LineStyle><color>ff0000ff</color><width>2</width></LineStyle></Style>
+      <LineString><coordinates>139.70,35.65 139.71,35.66</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>area</name>
+      <styleUrl>#area</styleUrl>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>139.70,35.65 139.71,35.65 139.71,35.66 139.70,35.65</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+  </Document>
+</kml>

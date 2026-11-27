@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>folders</name>
+    <open>1</open>
+    <Folder>
+      <name>outer</name>
+      <visibility>1</visibility>
+      <open>1</open>
+      <Folder>
+        <name>inner (hidden)</name>
+        <visibility>0</visibility>
+        <Placemark><name>hidden</name><Point><coordinates>139.70,35.65</coordinates></Point></Placemark>
+      </Folder>
+      <Placemark><name>shown</name><Point><coordinates>139.71,35.66</coordinates></Point></Placemark>
+    </Folder>
+    <Placemark><name>no geometry</name></Placemark>
+  </Document>
+</kml>

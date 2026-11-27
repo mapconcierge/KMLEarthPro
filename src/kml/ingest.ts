@@ -1,6 +1,7 @@
 import { useKmlStore } from '../store/kmlStore'
 import { readKmlFile } from './kmz'
 import { parseKml } from './parse'
+import { validateKmlSemantics } from './validate'
 
 export const KML_PATTERN = /\.(kml|kmz)$/i
 
@@ -16,6 +17,11 @@ export async function ingestKmlFile(file: File): Promise<void> {
     const { kml, resources, files } = await readKmlFile(file)
     const doc = parseKml(kml)
     if (doc.warnings.length) console.warn(`[KML] ${file.name}:`, doc.warnings)
+    // 仕様上の制約の検査（描画は止めず、問題をコンソールへ出すだけ）
+    const issues = validateKmlSemantics(kml)
+    if (issues.length) {
+      console.warn(`[KML] ${file.name}: 仕様の検査で ${issues.length} 件`, issues.map((i) => `${i.rule} [${i.severity}] ${i.where}: ${i.message}`))
+    }
     update(id, { status: 'loaded', name: doc.root.name ?? file.name, doc, resources, files })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

@@ -28,8 +28,10 @@ export async function readKmlFile(file: File): Promise<KmlSource> {
 
   const entries = unzipSync(buf)
   const names = Object.keys(entries)
-  // KMZ の仕様では最初の .kml がメイン文書（通常は doc.kml）
-  const main = names.find((n) => n.toLowerCase() === 'doc.kml') ?? names.find((n) => /\.kml$/i.test(n))
+  // メイン文書はアーカイブのルート直下の .kml（通常は doc.kml）。複数あれば最初のエントリ（OGC 12-007r2 付録 C.1）。
+  // サブフォルダ内の .kml（NetworkLink 先など）はメインにしない
+  const rootKml = names.filter((n) => !n.includes('/') && /\.kml$/i.test(n))
+  const main = rootKml.find((n) => n.toLowerCase() === 'doc.kml') ?? rootKml[0]
   if (!main) throw new Error('KMZ に .kml が含まれていません')
 
   const resources: Record<string, string> = {}

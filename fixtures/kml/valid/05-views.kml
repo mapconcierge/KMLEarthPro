@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>views</name>
+    <LookAt>
+      <longitude>139.7117</longitude><latitude>35.6609</latitude><altitude>0</altitude>
+      <heading>20</heading><tilt>60</tilt><range>300</range>
+      <altitudeMode>relativeToGround</altitudeMode>
+    </LookAt>
+    <Placemark>
+      <name>camera</name>
+      <Camera>
+        <longitude>139.70</longitude><latitude>35.65</latitude><altitude>500</altitude>
+        <heading>0</heading><tilt>45</tilt><roll>0</roll>
+        <altitudeMode>relativeToGround</altitudeMode>
+      </Camera>
+      <Point><coordinates>139.70,35.65</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

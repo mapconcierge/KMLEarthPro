@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document id="root">
+    <name>hidden and described</name>
+    <visibility>0</visibility>
+    <open>1</open>
+    <description>document description</description>
+    <LookAt><longitude>139.70</longitude><latitude>35.65</latitude><range>1000</range></LookAt>
+    <Folder id="f">
+      <name>hidden folder</name>
+      <visibility>0</visibility>
+      <open>1</open>
+      <description>folder description</description>
+      <Placemark id="pm">
+        <name>hidden placemark</name>
+        <visibility>0</visibility>
+        <description>placemark description</description>
+        <Point><coordinates>139.70,35.65</coordinates></Point>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

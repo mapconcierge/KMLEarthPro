@@ -412,3 +412,22 @@ describe('KMZ の往復（同梱ファイルの保持）', async () => {
     expect(r.files).toEqual({})
   })
 })
+
+describe('KMZ のメイン文書の選び方', async () => {
+  const { readKmlFile, writeKmz } = await import('./kmz')
+  const mk = (name: string) => `<kml><Document><name>${name}</name></Document></kml>`
+  it('サブフォルダの .kml より、ルート直下の .kml を選ぶ', async () => {
+    const bytes = writeKmz(mk('sub'), {}) // doc.kml を 'sub' にしておき、別名のルート kml を足す
+    const { zipSync, strToU8 } = await import('fflate')
+    const z = zipSync({ 'a/inner.kml': strToU8(mk('inner')), 'main.kml': strToU8(mk('main')) })
+    const r = await readKmlFile(new File([z as BlobPart], 'x.kmz'))
+    expect(r.kml).toContain('main')
+    expect(Object.keys(r.files)).toEqual(['a/inner.kml'])
+    expect(bytes.length).toBeGreaterThan(0)
+  })
+  it('ルート直下に .kml が無ければエラー', async () => {
+    const { zipSync, strToU8 } = await import('fflate')
+    const z = zipSync({ 'a/inner.kml': strToU8(mk('inner')) })
+    await expect(readKmlFile(new File([z as BlobPart], 'x.kmz'))).rejects.toThrow('KMZ に .kml')
+  })
+})

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>日本語の名前</name>
+    <Placemark>
+      <name>青山キャンパス</name>
+      <description>&lt;b&gt;東京都渋谷区&lt;/b&gt; &lt;a href="https://www.aoyama.ac.jp/"&gt;link&lt;/a&gt;</description>
+      <Point><coordinates>139.7117,35.6609</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

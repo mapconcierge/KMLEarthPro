@@ -12,6 +12,12 @@ export interface CameraAccess {
   get: () => CameraPose | null
   /** カメラをその位置へ（アニメーションなしで）置く。非同期でもよい */
   set: (pose: CameraPose) => void | Promise<void>
+  /**
+   * 地点（経度・緯度・楕円体高）が画面のどこに映るか（キャンバス左上からの CSS px）。見えない（背後など）ときは null。
+   * エンジン間の画面座標の一致を測る E2E テスト用（アプリ本体は使わない）。
+   * MapLibre は高さを使わず、地形があればその標高を含めた位置を返す
+   */
+  project?: (lng: number, lat: number, height: number) => [number, number] | null
 }
 
 interface CameraState {
@@ -51,3 +57,6 @@ export function startCameraSync(): () => void {
     else useCameraStore.setState((s) => ({ pending: { ...s.pending, [state.engine]: pose } }))
   })
 }
+
+// E2E テスト用の窓口（開発サーバーのときだけ。本番ビルドには出さない）
+if (import.meta.env.DEV) (globalThis as unknown as { __kmlEarthPro?: unknown }).__kmlEarthPro = { camera: useCameraStore }

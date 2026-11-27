@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
+import ThreeView, { geodeticToVector3, TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, setNavaraVisibleKeys, type NavaraKml } from '../adapters/navara-kml'
 import { navaraRegionView } from '../adapters/navara-view'
@@ -102,12 +102,23 @@ export default function NavaraView({ visible }: Props) {
       // エンジン切替でカメラ位置を引き継ぐための窓口（登録時に、保留されていたカメラがあれば適用される）
       useCameraStore.getState().register('3d-navara', {
         get: () => {
-          const g = view.camera.positionGeographic
-          const o = view.camera.orientation
-          if (o.pitch === undefined || o.heading === undefined) return null
-          return { lng: g.lng, lat: g.lat, height: g.height, heading: normalizeHeading(o.heading), pitch: o.pitch, roll: 0 }
+          // 初期化直後はカメラの位置がまだ無く、positionGeographic が例外を投げる
+          try {
+            const g = view.camera.positionGeographic
+            const o = view.camera.orientation
+            if (o.pitch === undefined || o.heading === undefined) return null
+            return { lng: g.lng, lat: g.lat, height: g.height, heading: normalizeHeading(o.heading), pitch: o.pitch, roll: 0 }
+          } catch {
+            return null
+          }
         },
         set: (pose) => view.setCamera({ lng: pose.lng, lat: pose.lat, height: pose.height, pitch: pose.pitch, heading: pose.heading }),
+        project: (lng, lat, height) => {
+          const r = view.canvas.getBoundingClientRect()
+          const ndc = geodeticToVector3({ lng, lat, height }).project(view.camera.raw)
+          if (ndc.z < -1 || ndc.z > 1) return null
+          return [((ndc.x + 1) / 2) * r.width, ((1 - ndc.y) / 2) * r.height]
+        },
       })
 
       // 標高タイルを地球表面として描画する

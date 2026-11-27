@@ -138,6 +138,10 @@ export default function MapView() {
         map.jumpTo({ center: first.center, zoom: first.zoom, bearing: first.bearing, pitch: first.pitch })
         refineWhenIdle(pose, h, n, first)
       },
+      project: (lng, lat) => {
+        const p = map.project([lng, lat])
+        return [p.x, p.y]
+      },
     })
     map.on('moveend', prefetchGeoid)
 

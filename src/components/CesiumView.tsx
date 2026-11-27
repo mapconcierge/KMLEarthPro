@@ -391,6 +391,10 @@ export default function CesiumView({ visible }: Props) {
             destination: Cesium.Cartesian3.fromDegrees(pose.lng, pose.lat, pose.height),
             orientation: { heading: Cesium.Math.toRadians(pose.heading), pitch: Cesium.Math.toRadians(pose.pitch), roll: 0 },
           }),
+        project: (lng, lat, height) => {
+          const p = viewer.scene.cartesianToCanvasCoordinates(Cesium.Cartesian3.fromDegrees(lng, lat, height))
+          return p ? [p.x, p.y] : null
+        },
       })
 
       // 地形を有効にすると地表の裏側の地物が透けて見えるため、深度テストを有効にする

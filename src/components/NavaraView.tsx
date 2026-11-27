@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import ThreeView, { TERRARIUM_ELEVATION_DECODER, type Source } from '@navaramap/three'
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
-import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, type NavaraKml } from '../adapters/navara-kml'
+import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, setNavaraVisibleKeys, type NavaraKml } from '../adapters/navara-kml'
+import { navaraRegionView } from '../adapters/navara-view'
+import { hasRegions, visiblePlacemarkKeys } from '../kml/region'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
 import './NavaraView.css'
@@ -162,6 +165,55 @@ export default function NavaraView({ visible }: Props) {
         const target = doc && resolveFlyView(doc, path, box ? box.clientWidth / Math.max(box.clientHeight, 1) : undefined)
         if (target) void flyToNavaraView(view, target, FLY_DURATION_MS / 2, sampleTerrain)
       }
+      // Region（Lod）による表示切替と、他のコンポーネント（NetworkLink）へ表示範囲を渡す。
+      // 3D では表示範囲が近似（navaraRegionView）。Navara を表示しているときだけ公開する
+      const lastKeys: Record<string, Set<string>> = {}
+      const engineIsNavara = () => useEngineStore.getState().engine === '3d-navara'
+      const applyRegions = () => {
+        if (!engineIsNavara()) return
+        const rv = navaraRegionView(view)
+        if (!rv) return
+        const entries = useKmlStore.getState().entries
+        for (const [id, k] of Object.entries(rendered)) {
+          if (k === pending) continue
+          const doc = entries.find((e) => e.id === id)?.doc
+          if (!doc || !hasRegions(doc)) continue
+          const keys = visiblePlacemarkKeys(doc, rv)
+          const prev = lastKeys[id]
+          if (prev && prev.size === keys.size && [...keys].every((x) => prev.has(x))) continue
+          lastKeys[id] = keys
+          setNavaraVisibleKeys(k, keys)
+        }
+      }
+      // 表示中のエンジンだけが公開する（非表示のエンジンが null で上書きしない）
+      const publishView = () => {
+        if (engineIsNavara()) useKmlStore.getState().setView(navaraRegionView(view))
+      }
+      let viewTimer: ReturnType<typeof setTimeout> | undefined
+      const onMoved = () => {
+        applyRegions()
+        publishView()
+      }
+      // 動きが止まってから測る（イベントは動いている間に連続して出るため、短く待って 1 回にまとめる）
+      const scheduleMoved = () => {
+        clearTimeout(viewTimer)
+        viewTimer = setTimeout(onMoved, 250)
+      }
+      // camera の move 系イベントは setCamera では出ないことがあるため、postUpdate でカメラ位置の変化を検出する
+      let lastCam = ''
+      view.on('postUpdate', () => {
+        const g = view.camera.positionGeographic
+        const o = view.camera.orientation
+        const k = [g.lng, g.lat, g.height, o.heading, o.pitch, view.camera.zoom].map((x) => (typeof x === 'number' ? x.toFixed(5) : x)).join(',')
+        if (k === lastCam) return
+        lastCam = k
+        scheduleMoved()
+      })
+      useEngineStore.subscribe(() => {
+        clearTimeout(viewTimer)
+        // 表示の切替直後は寸法が確定してから測る
+        viewTimer = setTimeout(onMoved, 400)
+      })
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
         for (const e of entries) {
@@ -176,6 +228,7 @@ export default function NavaraView({ visible }: Props) {
                 return
               }
               rendered[e.id] = k
+              applyRegions()
               if (e.autoFly !== false) flyToKml(e.id)
             })
             .catch((err: unknown) => {
@@ -187,6 +240,7 @@ export default function NavaraView({ visible }: Props) {
           if (!entries.some((e) => e.id === id) && rendered[id] !== pending) {
             removeKmlFromNavara(view, rendered[id])
             delete rendered[id]
+            delete lastKeys[id]
           }
         }
       }
@@ -204,6 +258,7 @@ export default function NavaraView({ visible }: Props) {
         if (state.selection !== prev.selection) applyHighlight()
       })
       syncKml()
+      viewTimer = setTimeout(onMoved, 1000) // 初回の表示範囲
       // 地図クリックで Placemark を選ぶ。プロパティの kmlPath と、レイヤ → 文書の対応で特定する
       view.on('featureClick', (info) => {
         const path = parseFeaturePath(info?.properties?.kmlPath)

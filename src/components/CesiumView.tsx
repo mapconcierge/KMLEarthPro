@@ -3,8 +3,11 @@ import type { Cesium3DTileset, ClippingPolygonCollection, KmlDataSource, Viewer 
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import { resolveAbsoluteView } from '../kml/camera'
 import { kmlToGeoJson } from '../adapters/maplibre-kml'
-import { findPlacemarkPath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
+import { placemarkKeys, placemarkLocator, resolveFlyView, type FeaturePath } from '../kml/target'
+import { prepareForCesium } from '../kml/cesium-prep'
+import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
+import { useEngineStore } from '../store/engineStore'
 import { useKmlStore } from '../store/kmlStore'
 import { useLayerStore } from '../store/layerStore'
 import { FLY_DURATION_MS, usePlaceStore } from '../store/placeStore'
@@ -423,6 +426,86 @@ export default function CesiumView({ visible }: Props) {
           void viewer.flyTo(ds)
         }
       }
+      // エンティティ（KmlDataSource）の最初の座標（経度, 緯度）。文書モデルの Placemark へ戻すのに使う
+      const entityLonLat = (entity: import('cesium').Entity): [number, number] | undefined => {
+        const time = viewer.clock.currentTime
+        const pos =
+          entity.position?.getValue(time) ??
+          entity.polyline?.positions?.getValue(time)?.[0] ??
+          entity.polygon?.hierarchy?.getValue(time)?.positions?.[0]
+        if (!pos) return undefined
+        const c = Cesium.Cartographic.fromCartesian(pos)
+        return [Cesium.Math.toDegrees(c.longitude), Cesium.Math.toDegrees(c.latitude)]
+      }
+      // Region（Lod）による表示切替。Cesium の KmlDataSource は Placemark の Region を処理しない（警告を出して無視）ので、
+      // 読み込み後にエンティティ → kmlPath の対応を 1 度作り、カメラが止まるたびに entity.show を切り替える。
+      // 表示範囲は camera.computeViewRectangle() の外接矩形（傾きがあると近似）。
+      // 対応づけは名前 + 最初の座標のため、同名・同座標の Placemark が複数あると区別できない
+      const entityKeys = new Map<string, Map<import('cesium').Entity, string>>()
+      const lastKeys: Record<string, Set<string>> = {}
+      const engineIsCesium = () => useEngineStore.getState().engine === '3d-cesium'
+      const currentView = (): RegionView | null => {
+        const w = viewer.canvas.clientWidth
+        const h = viewer.canvas.clientHeight
+        if (!engineIsCesium() || w === 0 || h === 0) return null
+        const r = viewer.camera.computeViewRectangle()
+        if (!r) return null
+        const west = Cesium.Math.toDegrees(r.west)
+        const east = Cesium.Math.toDegrees(r.east)
+        const wrap = r.west > r.east // 日付変更線をまたぐ範囲は全経度とする
+        return {
+          west: wrap ? -180 : west,
+          south: Cesium.Math.toDegrees(r.south),
+          east: wrap ? 180 : east,
+          north: Cesium.Math.toDegrees(r.north),
+          widthPx: w,
+          heightPx: h,
+        }
+      }
+      const indexEntities = (id: string, ds: KmlDataSource) => {
+        const doc = useKmlStore.getState().entries.find((e) => e.id === id)?.doc
+        if (!doc || !hasRegions(doc)) return
+        const locate = placemarkLocator(doc)
+        const map = new Map<import('cesium').Entity, string>()
+        for (const entity of ds.entities.values) {
+          const ll = entityLonLat(entity)
+          const path = ll && locate(entity.name ?? '', ll[0], ll[1])
+          if (path) map.set(entity, path.join('/'))
+        }
+        entityKeys.set(id, map)
+      }
+      const applyRegions = () => {
+        const rv = currentView()
+        if (!rv) return
+        const entries = useKmlStore.getState().entries
+        for (const [id, map] of entityKeys) {
+          const doc = entries.find((e) => e.id === id)?.doc
+          if (!doc) continue
+          const keys = visiblePlacemarkKeys(doc, rv)
+          const prev = lastKeys[id]
+          if (prev && prev.size === keys.size && [...keys].every((k) => prev.has(k))) continue
+          lastKeys[id] = keys
+          for (const [entity, key] of map) entity.show = keys.has(key)
+        }
+      }
+      // 表示中のエンジンだけが公開する（非表示のエンジンが null で上書きしない）
+      const publishView = () => {
+        if (engineIsCesium()) useKmlStore.getState().setView(currentView())
+      }
+      const onMoved = () => {
+        applyRegions()
+        publishView()
+      }
+      let viewTimer: ReturnType<typeof setTimeout> | undefined
+      viewer.camera.moveEnd.addEventListener(() => {
+        clearTimeout(viewTimer)
+        viewTimer = setTimeout(onMoved, 150)
+      })
+      useEngineStore.subscribe(() => {
+        clearTimeout(viewTimer)
+        // 表示の切替直後は寸法が確定してから測る
+        viewTimer = setTimeout(onMoved, 400)
+      })
       const loading = new Set<string>()
       const syncKml = () => {
         const entries = useKmlStore.getState().entries
@@ -434,14 +517,17 @@ export default function CesiumView({ visible }: Props) {
               const Cesium = await import('cesium')
               // camera / canvas は KML の NetworkLink (viewRefreshMode) が参照する。
               // clampToGround で地表に沿わせないと地形から浮いたり埋まったりする
-              const ds: KmlDataSource = await Cesium.KmlDataSource.load(e.file!, {
+              const ds: KmlDataSource = await Cesium.KmlDataSource.load(await prepareForCesium(e.file!), {
                 camera: viewer.camera,
                 canvas: viewer.canvas,
                 clampToGround: true,
               })
               await viewer.dataSources.add(ds)
               sourcesRef.current.set(e.id, ds)
-              if (visibleRef.current) void flyToKml(e.id)
+              indexEntities(e.id, ds)
+              applyRegions()
+              // NetworkLink（onRegion）の更新では飛ばない
+              if (visibleRef.current && e.autoFly !== false) void flyToKml(e.id)
             } catch (err: unknown) {
               console.error('[Cesium] KML load failed:', err instanceof Error ? err.message : err)
             } finally {
@@ -453,6 +539,8 @@ export default function CesiumView({ visible }: Props) {
           if (!entries.some((e) => e.id === id)) {
             viewer.dataSources.remove(ds, true)
             sourcesRef.current.delete(id)
+            entityKeys.delete(id)
+            delete lastKeys[id]
           }
         }
       }
@@ -501,21 +589,9 @@ export default function CesiumView({ visible }: Props) {
         if (entity && highlightDs?.entities.contains(entity)) return // 強調表示そのものは選択対象にしない
         const ds = entity && [...sourcesRef.current].find(([, d]) => d.entities.contains(entity))
         if (!entity || !ds) return select(null)
-        const time = viewer.clock.currentTime
-        let carto: import('cesium').Cartographic | undefined
-        const pos = entity.position?.getValue(time)
-        if (pos) carto = Cesium.Cartographic.fromCartesian(pos)
-        else {
-          const ring =
-            entity.polyline?.positions?.getValue(time) ??
-            entity.polygon?.hierarchy?.getValue(time)?.positions
-          if (ring?.[0]) carto = Cesium.Cartographic.fromCartesian(ring[0])
-        }
+        const ll = entityLonLat(entity)
         const doc = useKmlStore.getState().entries.find((x) => x.id === ds[0])?.doc
-        const path =
-          doc && carto
-            ? findPlacemarkPath(doc, entity.name ?? '', Cesium.Math.toDegrees(carto.longitude), Cesium.Math.toDegrees(carto.latitude))
-            : undefined
+        const path = doc && ll ? placemarkLocator(doc)(entity.name ?? '', ll[0], ll[1]) : undefined
         select(path ? { id: ds[0], path } : null)
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
       useKmlStore.getState().registerFlyer('3d-cesium', (id, path) => void flyToKml(id, path))

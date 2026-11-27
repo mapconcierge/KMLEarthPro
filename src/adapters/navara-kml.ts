@@ -33,11 +33,24 @@ type View = ThreeView<DefaultDescriptions>
 interface NavaraPart {
   source: Source
   layerId: string
+  /** 再評価（Region による表示切替）のために保持する */
+  layer?: { forceUpdate(): void }
 }
 
 export interface NavaraKml {
   /** 通常のフィーチャ用 1 つ + アイコン配置（hotSpot）グループごとに 1 つ */
   parts: NavaraPart[]
+  /** Region（Lod）で見える Placemark の kmlPath。null なら全部見せる */
+  visibleKeys?: Set<string> | null
+}
+
+/**
+ * Region（Lod）による表示切替を適用する。見える Placemark の kmlPath の集合（null で全表示）を渡すと、
+ * 各レイヤのフィーチャを再評価して show を切り替える（データの入れ直しはしない）
+ */
+export function setNavaraVisibleKeys(k: NavaraKml, keys: Set<string> | null): void {
+  k.visibleKeys = keys
+  for (const part of k.parts) part.layer?.forceUpdate()
 }
 
 const LABEL_SIZE_PX = 18
@@ -67,11 +80,14 @@ export async function addKmlToNavara(
     features: fc.features.filter((f) => pred((f.properties as { iconGroup?: string }).iconGroup)),
   })
   const parts: NavaraPart[] = []
+  const result: NavaraKml = { parts, visibleKeys: null }
   const addPart = (data: FeatureCollection, materials: Record<string, unknown>) => {
     const source = view.addSource({ type: 'geojson', data })
     const layer = view.addLayer({ type: 'vector', source, ...materials } as never)
     layer.on('featureCreated', ({ evaluator }) => style(evaluator))
-    parts.push({ source, layerId: layer.id })
+    // Region による表示切替で forceUpdate されたとき、同じ評価をやり直す
+    layer.on('featureUpdated', ({ evaluator }) => style(evaluator))
+    parts.push({ source, layerId: layer.id, layer })
   }
   const textBase = {
     font: FONT_FAMILY,
@@ -125,21 +141,24 @@ export async function addKmlToNavara(
   const style = (e: FeatureEvaluator) =>
     e.evaluate(({ properties: p, meshGeomType }) => {
       const props = p ?? {}
+      // Region（Lod）で非表示の Placemark は、どの種類のメッシュでも隠す
+      const keys = result.visibleKeys
+      const inRegion = !keys || keys.has(str(props.kmlPath, ''))
       switch (meshGeomType) {
         case 'polygon':
-          return { color: new Color().setStyle(str(props.fillColor, '#ffffff')), opacity: numv(props.fillOpacity, 1) }
+          return { color: new Color().setStyle(str(props.fillColor, '#ffffff')), opacity: numv(props.fillOpacity, 1), show: inRegion }
         case 'polyline':
-          return { color: new Color().setStyle(str(props.lineColor, '#ffffff')), opacity: numv(props.lineOpacity, 1), width: numv(props.lineWidth, 1) }
+          return { color: new Color().setStyle(str(props.lineColor, '#ffffff')), opacity: numv(props.lineOpacity, 1), width: numv(props.lineWidth, 1), show: inRegion }
         case 'point': {
           // アイコン画像のある点は billboard 側で描くので円は隠す
           const hasIcon = str(props.iconHref, '') !== ''
-          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')), opacity: numv(props.pointOpacity, 1), show: !hasIcon }
+          return { color: new Color().setStyle(str(props.pointColor, '#ffd400')), opacity: numv(props.pointOpacity, 1), show: !hasIcon && inRegion }
         }
         case 'billboard': {
           const href = str(props.iconHref, '')
           return href
             // Navara の billboard の size は「高さ」（幅は画像の縦横比で決まる）。MapLibre と大きさを揃える
-            ? { show: true, image: href, size: numv(props.iconDisplayHeight, KML_ICON_BASE_PX * numv(props.iconScale, 1)) }
+            ? { show: inRegion, image: href, size: numv(props.iconDisplayHeight, KML_ICON_BASE_PX * numv(props.iconScale, 1)) }
             : { show: false }
         }
         case 'text': {
@@ -152,7 +171,7 @@ export async function addKmlToNavara(
             color: new Color().setStyle(str(props.labelColor, '#ffffff')),
             opacity: numv(props.labelOpacity, 1),
             size: LABEL_SIZE_PX * numv(props.labelScale, 1),
-            show: name !== '',
+            show: name !== '' && inRegion,
           }
         }
         default:
@@ -160,7 +179,7 @@ export async function addKmlToNavara(
       }
     })
 
-  return { parts }
+  return result
 }
 
 /**

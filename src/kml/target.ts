@@ -121,31 +121,47 @@ export function parseFeaturePath(s: unknown): FeaturePath | undefined {
   return p.every((n) => Number.isInteger(n) && n >= 0) ? p : undefined
 }
 
-/**
- * 名前と位置から Placemark を探す（Cesium の KmlDataSource のエンティティから文書モデルへ戻す用）。
- * 最初の座標が (lon, lat) に最も近いものを選ぶ。名前が一致するものだけが候補。許容は約 1 m
- */
-export function findPlacemarkPath(doc: KmlDocument, name: string, lon: number, lat: number): FeaturePath | undefined {
-  let best: { path: FeaturePath; d: number } | undefined
-  const first = (g: NonNullable<Placemark['geometry']>): [number, number] | undefined => {
-    switch (g.type) {
-      case 'Point': return [g.coordinates[0], g.coordinates[1]]
-      case 'LineString': return g.coordinates[0] && [g.coordinates[0][0], g.coordinates[0][1]]
-      case 'Polygon': return g.outer[0] && [g.outer[0][0], g.outer[0][1]]
-      case 'MultiGeometry': for (const x of g.geometries) { const c = first(x); if (c) return c }
-    }
+/** Placemark の最初の座標（経度, 緯度）。ジオメトリが無ければ undefined */
+function firstLonLat(g: NonNullable<Placemark['geometry']>): [number, number] | undefined {
+  switch (g.type) {
+    case 'Point': return [g.coordinates[0], g.coordinates[1]]
+    case 'LineString': return g.coordinates[0] && [g.coordinates[0][0], g.coordinates[0][1]]
+    case 'Polygon': return g.outer[0] && [g.outer[0][0], g.outer[0][1]]
+    case 'MultiGeometry': for (const x of g.geometries) { const c = firstLonLat(x); if (c) return c }
   }
+}
+
+/**
+ * 名前と位置から Placemark を探す索引を作る（Cesium の KmlDataSource のエンティティから文書モデルへ戻す用）。
+ * 名前ごとに候補を持つので、エンティティが多くても 1 件あたりは同名の Placemark の数だけで済む。
+ * 返す関数は、最初の座標が (lon, lat) に最も近い候補を選ぶ。名前が一致するものだけが候補。許容は約 1 m
+ */
+export function placemarkLocator(doc: KmlDocument): (name: string, lon: number, lat: number) => FeaturePath | undefined {
+  const byName = new Map<string, { path: FeaturePath; c: [number, number] }[]>()
   const walk = (f: Feature, path: FeaturePath) => {
     if (f.kind === 'Placemark') {
-      if ((f.name ?? '') !== name || !f.geometry) return
-      const c = first(f.geometry)
+      const c = f.geometry && firstLonLat(f.geometry)
       if (!c) return
-      const d = Math.hypot(c[0] - lon, c[1] - lat)
-      if (!best || d < best.d) best = { path, d }
-    } else childrenOf(f).forEach((c, i) => walk(c, [...path, i]))
+      const key = f.name ?? ''
+      const list = byName.get(key)
+      if (list) list.push({ path, c })
+      else byName.set(key, [{ path, c }])
+    } else childrenOf(f).forEach((x, i) => walk(x, [...path, i]))
   }
   walk(doc.root, [])
-  return best && best.d < 1e-4 ? best.path : undefined
+  return (name, lon, lat) => {
+    let best: { path: FeaturePath; d: number } | undefined
+    for (const { path, c } of byName.get(name) ?? []) {
+      const d = Math.hypot(c[0] - lon, c[1] - lat)
+      if (!best || d < best.d) best = { path, d }
+    }
+    return best && best.d < 1e-4 ? best.path : undefined
+  }
+}
+
+/** 名前と位置から Placemark を探す（1 件だけ引く用。多数を引くなら placemarkLocator） */
+export function findPlacemarkPath(doc: KmlDocument, name: string, lon: number, lat: number): FeaturePath | undefined {
+  return placemarkLocator(doc)(name, lon, lat)
 }
 
 /** path のフィーチャ（フォルダなら配下すべて）に含まれる、ジオメトリを持つ Placemark の kmlPath 一覧（強調表示用） */

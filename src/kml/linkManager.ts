@@ -1,6 +1,7 @@
 import { useKmlStore, linkKey, type KmlEntry } from '../store/kmlStore'
 import { readKmlFile } from './kmz'
 import { buildLinkUrl, findNetworkLinks, nextRefreshDelayMs, normalizeArchivePath, resolveHref, type FoundLink, type LinkBase } from './networkLink'
+import { VIEW_DRIVEN_MODES } from './cesium-prep'
 import { parseKml } from './parse'
 import { regionActive, type RegionView } from './region'
 import { validateKmlSemantics } from './validate'
@@ -161,6 +162,9 @@ async function load(c: Controller, first: boolean): Promise<void> {
       status: 'loaded',
       doc,
       resources,
+      // 表示範囲に連動するモード（onStop / onRegion）は、Cesium の KmlDataSource に任せず（cesium-prep 参照）
+      // こちらで取得する。派生エントリに file を持たせると Cesium も描く。他のモードは Cesium が自前で取得する
+      file: VIEW_DRIVEN_MODES.includes(viewMode(c)) ? file : undefined,
       // 同じ KMZ の中から読んだ文書は、その KMZ の同梱ファイルを共有する
       files: target.kind === 'file' ? parent.files : files,
       base: inArchive ? { dir: base.dir ?? '' } : base,

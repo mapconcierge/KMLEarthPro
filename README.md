@@ -59,7 +59,7 @@ docs/
 | 段階 | 内容 | 状態 |
 |------|------|------|
 | Phase 0 | 基盤構築・GitHub Pages 配信・Navara 実証 | 🚧 進行中 |
-| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre/Navara 表示・KML/KMZ 保存まで。KMZ は同梱ファイルも書き戻し。KML 2.2 / 2.3 の XSD（Java の Xerces で XSD 1.1）による検証と一部の意味検査あり、ATS は未実装。NetworkLink の取得・更新と Region 表示切替に 3 エンジンで対応。3D の表示範囲は近似） |
+| Phase 1 | KML/KMZ→3エンジン表示→保存の基本経路 | 🚧 進行中（共通モデル・パーサー・MapLibre/Navara 表示・KML/KMZ 保存まで。KMZ は同梱ファイルも書き戻し。KML 2.2 / 2.3 の XSD（Java の Xerces で XSD 1.1）による検証と一部の意味検査あり、ATS は未実装。NetworkLink の取得・更新と Region 表示切替に 3 エンジンで対応。3D の表示範囲は近似。高度モード〈relativeToGround / absolute / extrude〉は Navara・CesiumJS で描画し、absolute はジオイド高で補正。MapLibre は 2D のため高度を無視） |
 | Phase 2 | NetworkLink・Update・Region・時間 | 未着手 |
 | Phase 3 | PhotoOverlay・Model・Tour・KML 2.3 全仕様 | 未着手 |
 | Phase 4 | Earth Pro 製品機能・歴代機能 | 未着手 |

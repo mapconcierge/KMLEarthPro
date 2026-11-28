@@ -11,7 +11,7 @@ import type { AbstractView, KmlDocument } from '../kml/types'
 // Navara(3D) では GeoJSON ソース + vector レイヤで描き、色・幅・ラベルは
 // FeatureEvaluator でフィーチャのプロパティから当てる（2D と同じ変換結果を共有）。
 // アイコン画像は billboard（FeatureEvaluator の image でフィーチャごとに指定）。取れない/無い点は円。
-// 制限: hotSpot 未対応（中心基準）、高度・extrude は未反映（地表に貼る）。
+// 高度: resolveAltitudes で楕円体高へ直した relativeToGround / absolute は、地表に貼らず浮かせる（extrude は角柱・落とし線で近似）。
 // ラベル(name): 原因調査の結果、text レイヤーは font 未指定だと一切描画されない（Navara 0.1.1）。Google Fonts の
 // CSS から unicode-range 分割の FontFamily を作って登録し、使う文字を含む face だけ取得させる。
 const FONT_FAMILY = 'KmlLabelFont'
@@ -70,14 +70,21 @@ export async function addKmlToNavara(
 ): Promise<NavaraKml> {
   // フォント取得に失敗してもラベルが出ないだけで、点・線・面は描く
   await ensureFont(view).catch((e: unknown) => console.warn('[Navara] font load failed:', e))
-  const fc = kmlToGeoJson(doc, resources)
+  const fc = kmlToGeoJson(doc, resources, { altitude: true })
   const groups = await prepareIcons(fc)
 
   // Navara の billboard / text の center（アンカー）はレイヤ単位で、フィーチャごとには変えられない。
   // そこで、hotSpot とラベル位置が同じアイコン点（iconGroup）ごとにソースとレイヤを分ける。
-  const featuresOf = (pred: (group: string | undefined) => boolean): FeatureCollection => ({
+  // 高度（resolveAltitudes で楕円体高へ直したもの）を持つフィーチャは、地表に貼らない別レイヤにする。
+  // 角柱（prism: extrude した面・壁）は、さらに別レイヤ（height / extrudedHeight をフィーチャごとに当てる）
+  type P = { iconGroup?: string; elevated?: boolean; prism?: boolean }
+  const featuresOf = (pred: (group: string | undefined) => boolean, kind: 'ground' | 'elevated' | 'prism' = 'ground'): FeatureCollection => ({
     type: 'FeatureCollection',
-    features: fc.features.filter((f) => pred((f.properties as { iconGroup?: string }).iconGroup)),
+    features: fc.features.filter((f) => {
+      const p = f.properties as P
+      const k = p.prism ? 'prism' : p.elevated ? 'elevated' : 'ground'
+      return k === kind && pred(p.iconGroup)
+    }),
   })
   const parts: NavaraPart[] = []
   const result: NavaraKml = { parts, visibleKeys: null }
@@ -113,30 +120,40 @@ export async function addKmlToNavara(
     lineHeight: Math.max(belowPx, 1) / (LABEL_SIZE_PX * LINE_HEIGHT_PX_PER_SIZE),
   })
 
-  // 通常のフィーチャ（面・線・アイコン無しの点）。ラベルは円の直下
-  addPart(featuresOf((g) => g === undefined), {
-    polygon: { clampToGround: true, transparent: true, outline: false },
-    polyline: { clampToGround: true, transparent: true, width: 2 },
-    point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
-    text: labelMaterial(POINT_RADIUS_PX + LABEL_GAP_PX),
-  })
-  // アイコン付きの点（グループごと）
-  for (const g of groups.values()) {
-    addPart(featuresOf((k) => k === g.key), {
-      billboard: {
-        clampToGround: true,
-        sizeInMeters: false,
-        depthTest: false,
-        size: KML_ICON_BASE_PX,
-        declutter: false,
-        transparent: true,
-        center: { x: g.anchorX, y: g.anchorY },
-      },
-      // 同じ点は円（point）も生成されるが、評価で隠す。ラベルはアイコン下端の直下
-      point: { clampToGround: true, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
-      text: labelMaterial(g.belowPx + LABEL_GAP_PX),
+  // 地表に貼る（ground）か、高度どおりに浮かせる（elevated）か
+  for (const kind of ['ground', 'elevated'] as const) {
+    const clamp = kind === 'ground'
+    // 通常のフィーチャ（面・線・アイコン無しの点）。ラベルは円の直下
+    addPart(featuresOf((g) => g === undefined, kind), {
+      polygon: clamp
+        ? { clampToGround: true, transparent: true, outline: false }
+        : { clampToGround: false, perPositionHeight: true, transparent: true, outline: false },
+      polyline: { clampToGround: clamp, transparent: true, width: 2 },
+      point: { clampToGround: clamp, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
+      text: { ...labelMaterial(POINT_RADIUS_PX + LABEL_GAP_PX), clampToGround: clamp },
     })
+    // アイコン付きの点（グループごと）
+    for (const g of groups.values()) {
+      addPart(featuresOf((k) => k === g.key, kind), {
+        billboard: {
+          clampToGround: clamp,
+          sizeInMeters: false,
+          depthTest: false,
+          size: KML_ICON_BASE_PX,
+          declutter: false,
+          transparent: true,
+          center: { x: g.anchorX, y: g.anchorY },
+        },
+        // 同じ点は円（point）も生成されるが、評価で隠す。ラベルはアイコン下端の直下
+        point: { clampToGround: clamp, sizeInMeters: false, depthTest: false, size: 12, color: new Color().setStyle('#ffd400') },
+        text: { ...labelMaterial(g.belowPx + LABEL_GAP_PX), clampToGround: clamp },
+      })
+    }
   }
+  // extrude した面・壁（角柱）。底面と上面の楕円体高をフィーチャごとに当てる
+  addPart(featuresOf((g) => g === undefined, 'prism'), {
+    polygon: { clampToGround: false, transparent: true, outline: false },
+  })
 
   const style = (e: FeatureEvaluator) =>
     e.evaluate(({ properties: p, meshGeomType }) => {
@@ -145,10 +162,20 @@ export async function addKmlToNavara(
       const keys = result.visibleKeys
       const inRegion = !keys || keys.has(str(props.kmlPath, ''))
       switch (meshGeomType) {
-        case 'polygon':
-          return { color: new Color().setStyle(str(props.fillColor, '#ffffff')), opacity: numv(props.fillOpacity, 1), show: inRegion }
+        case 'polygon': {
+          const base = { color: new Color().setStyle(str(props.fillColor, '#ffffff')), opacity: numv(props.fillOpacity, 1), show: inRegion }
+          // 角柱（extrude）は、底面と上面の楕円体高を当てる
+          return props.prism === true ? { ...base, height: numv(props.baseHeight, 0), extrudedHeight: numv(props.topHeight, 0) } : base
+        }
         case 'polyline':
-          return { color: new Color().setStyle(str(props.lineColor, '#ffffff')), opacity: numv(props.lineOpacity, 1), width: numv(props.lineWidth, 1), show: inRegion }
+          // 浮かせる線は、1 本ごとに高さが 1 つ（頂点の高さは使われない）。lineHeight を当てる
+          return {
+            color: new Color().setStyle(str(props.lineColor, '#ffffff')),
+            opacity: numv(props.lineOpacity, 1),
+            width: numv(props.lineWidth, 1),
+            show: inRegion,
+            ...(typeof props.lineHeight === 'number' ? { height: props.lineHeight } : {}),
+          }
         case 'point': {
           // アイコン画像のある点は billboard 側で描くので円は隠す
           const hasIcon = str(props.iconHref, '') !== ''

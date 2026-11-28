@@ -3,6 +3,8 @@ import ThreeView, { geodeticToVector3, TERRARIUM_ELEVATION_DECODER, type Source 
 import { DefaultPlugin, type DefaultDescriptions } from '@navaramap/three-default-plugin'
 import { addKmlToNavara, addNavaraHighlight, flyToNavaraView, removeKmlFromNavara, setNavaraVisibleKeys, type NavaraKml } from '../adapters/navara-kml'
 import { navaraRegionView } from '../adapters/navara-view'
+import { geoidHeight } from '../adapters/geoid'
+import { elevatedGeometries, resolveAltitudes } from '../kml/altitude'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { parseFeaturePath, placemarkKeys, resolveFlyView, type FeaturePath } from '../kml/target'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
@@ -262,7 +264,19 @@ export default function NavaraView({ visible }: Props) {
           if (!e.doc || e.id in rendered) continue
           // 非同期（フォント取得）の間に重複登録されないよう先に印を付ける
           rendered[e.id] = pending
-          void addKmlToNavara(view, e.doc, e.resources)
+          // 高度（absolute / relativeToGround）は、ジオイド高と地表の標高を足した楕円体高へ直してから描く
+          void (elevatedGeometries(e.doc).length
+            ? resolveAltitudes(e.doc, {
+                geoid: geoidHeight,
+                terrain: async (points) =>
+                  (await view.sampleTerrainMostDetailed(dem, points.map((p) => ({ lat: p.lat, lng: p.lng })))).map((r) => r.height),
+              }).catch((err: unknown) => {
+                console.warn('[Navara] altitude resolve failed:', err)
+                return e.doc!
+              })
+            : Promise.resolve(e.doc)
+          )
+            .then((doc) => addKmlToNavara(view, doc!, e.resources))
             .then((k) => {
               if (!useKmlStore.getState().entries.some((x) => x.id === e.id)) {
                 removeKmlFromNavara(view, k)

@@ -5,6 +5,8 @@ import { resolveAbsoluteView, VERTICAL_FOV_DEG } from '../kml/camera'
 import { kmlToGeoJson } from '../adapters/maplibre-kml'
 import { placemarkKeys, placemarkLocator, resolveFlyView, type FeaturePath } from '../kml/target'
 import { prepareForCesium } from '../kml/cesium-prep'
+import type { HeightSources } from '../kml/altitude'
+import { geoidHeight } from '../adapters/geoid'
 import { hasRegions, visiblePlacemarkKeys, type RegionView } from '../kml/region'
 import { ingestKmlFile, KML_PATTERN } from '../kml/ingest'
 import { normalizeHeading, useCameraStore } from '../store/cameraStore'
@@ -135,6 +137,20 @@ async function styleBuildings(tileset: Cesium3DTileset) {
  * 日本の都市で建物が二重になるため、読み込み済み PLATEAU の範囲を
  * ClippingPolygonCollection で切り抜いて描画から外す。
  */
+/** 高度の解決（absolute のジオイド補正・relativeToGround の標高加算）に使う、ジオイド高と地表の楕円体高 */
+function cesiumHeights(Cesium: typeof import('cesium'), viewer: Viewer): HeightSources {
+  return {
+    geoid: geoidHeight,
+    terrain: async (points) => {
+      const carto = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider,
+        points.map((p) => Cesium.Cartographic.fromDegrees(p.lng, p.lat)),
+      )
+      return carto.map((c) => c.height)
+    },
+  }
+}
+
 function watchBuildings(viewer: Viewer) {
   let index: PlateauEntry[] | null = null
   let indexPending = false
@@ -556,7 +572,7 @@ export default function CesiumView({ visible }: Props) {
               const Cesium = await import('cesium')
               // camera / canvas は KML の NetworkLink (viewRefreshMode) が参照する。
               // clampToGround で地表に沿わせないと地形から浮いたり埋まったりする
-              const ds: KmlDataSource = await Cesium.KmlDataSource.load(await prepareForCesium(e.file!), {
+              const ds: KmlDataSource = await Cesium.KmlDataSource.load(await prepareForCesium(e.file!, cesiumHeights(Cesium, viewer)), {
                 camera: viewer.camera,
                 canvas: viewer.canvas,
                 clampToGround: true,

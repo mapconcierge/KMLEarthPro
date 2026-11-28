@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>altitude modes</name>
+    <description>東京駅付近（地表の標高は数 m）。列は左から clampToGround / relativeToGround / 同 extrude / absolute / 同 extrude。行は上から Point / LineString / Polygon。高度は 150 m（clampToGround は 0）。absolute は海抜なので、ジオイド高（東京で約 36 m）ぶん、補正しないと relativeToGround より低く描かれる。</description>
+    <Style id="alt"><LineStyle><color>ff0000ff</color><width>4</width></LineStyle><PolyStyle><color>990000ff</color></PolyStyle></Style>
+    <Placemark>
+      <name>point clamp</name>
+      <styleUrl>#alt</styleUrl>
+      <Point><altitudeMode>clampToGround</altitudeMode><coordinates>139.7600,35.690,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>line clamp</name>
+      <styleUrl>#alt</styleUrl>
+      <LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode><coordinates>139.7600,35.685,0 139.7620,35.685,0 139.7620,35.686,0</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>polygon clamp</name>
+      <styleUrl>#alt</styleUrl>
+      <Polygon><altitudeMode>clampToGround</altitudeMode><outerBoundaryIs><LinearRing><coordinates>139.7600,35.6785,0 139.7620,35.6785,0 139.7620,35.6805,0 139.7600,35.6805,0 139.7600,35.6785,0</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark>
+      <name>point rel</name>
+      <styleUrl>#alt</styleUrl>
+      <Point><altitudeMode>relativeToGround</altitudeMode><coordinates>139.7640,35.690,150</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>line rel</name>
+      <styleUrl>#alt</styleUrl>
+      <LineString><altitudeMode>relativeToGround</altitudeMode><coordinates>139.7640,35.685,150 139.7660,35.685,150 139.7660,35.686,150</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>polygon rel</name>
+      <styleUrl>#alt</styleUrl>
+      <Polygon><altitudeMode>relativeToGround</altitudeMode><outerBoundaryIs><LinearRing><coordinates>139.7640,35.6785,150 139.7660,35.6785,150 139.7660,35.6805,150 139.7640,35.6805,150 139.7640,35.6785,150</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark>
+      <name>point rel-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <Point><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode><coordinates>139.7680,35.690,150</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>line rel-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <LineString><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode><coordinates>139.7680,35.685,150 139.7700,35.685,150 139.7700,35.686,150</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>polygon rel-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode><outerBoundaryIs><LinearRing><coordinates>139.7680,35.6785,150 139.7700,35.6785,150 139.7700,35.6805,150 139.7680,35.6805,150 139.7680,35.6785,150</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark>
+      <name>point abs</name>
+      <styleUrl>#alt</styleUrl>
+      <Point><altitudeMode>absolute</altitudeMode><coordinates>139.7720,35.690,150</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>line abs</name>
+      <styleUrl>#alt</styleUrl>
+      <LineString><altitudeMode>absolute</altitudeMode><coordinates>139.7720,35.685,150 139.7740,35.685,150 139.7740,35.686,150</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>polygon abs</name>
+      <styleUrl>#alt</styleUrl>
+      <Polygon><altitudeMode>absolute</altitudeMode><outerBoundaryIs><LinearRing><coordinates>139.7720,35.6785,150 139.7740,35.6785,150 139.7740,35.6805,150 139.7720,35.6805,150 139.7720,35.6785,150</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+    <Placemark>
+      <name>point abs-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <Point><extrude>1</extrude><altitudeMode>absolute</altitudeMode><coordinates>139.7760,35.690,150</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>line abs-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <LineString><extrude>1</extrude><altitudeMode>absolute</altitudeMode><coordinates>139.7760,35.685,150 139.7780,35.685,150 139.7780,35.686,150</coordinates></LineString>
+    </Placemark>
+    <Placemark>
+      <name>polygon abs-extrude</name>
+      <styleUrl>#alt</styleUrl>
+      <Polygon><extrude>1</extrude><altitudeMode>absolute</altitudeMode><outerBoundaryIs><LinearRing><coordinates>139.7760,35.6785,150 139.7780,35.6785,150 139.7780,35.6805,150 139.7760,35.6805,150 139.7760,35.6785,150</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+  </Document>
+</kml>

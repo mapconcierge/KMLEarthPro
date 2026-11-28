@@ -1,3 +1,4 @@
+import { hasElevatedGeometry, resolveKmlAltitudes, type HeightSources } from './altitude'
 import { readKmlFile, writeKmz } from './kmz'
 
 // Cesium の KmlDataSource に渡す前の下ごしらえ。
@@ -33,13 +34,18 @@ export function stripViewDrivenLinks(kml: string): string | null {
   return removed ? new XMLSerializer().serializeToString(doc) : null
 }
 
-/** Cesium に渡すファイル。取り除く NetworkLink が無ければ元のファイルのまま。KMZ は同梱ファイルを保って組み直す */
-export async function prepareForCesium(file: File): Promise<File> {
+/**
+ * Cesium に渡すファイル。取り除く NetworkLink も、直す高度も無ければ元のファイルのまま。KMZ は同梱ファイルを保って組み直す。
+ * heights を渡すと、absolute / relativeToGround のジオメトリの高度を楕円体高へ直す
+ * （KmlDataSource はそれらをそのまま楕円体高として描くため。resolveKmlAltitudes 参照）
+ */
+export async function prepareForCesium(file: File, heights?: HeightSources): Promise<File> {
   const { kml, files } = await readKmlFile(file)
-  const stripped = stripViewDrivenLinks(kml)
-  if (stripped === null) return file
+  let out = stripViewDrivenLinks(kml)
+  if (heights && hasElevatedGeometry(out ?? kml)) out = (await resolveKmlAltitudes(out ?? kml, heights)) ?? out
+  if (out === null) return file
   const isKmz = Object.keys(files).length > 0 || /\.kmz$/i.test(file.name)
   return isKmz
-    ? new File([writeKmz(stripped, files) as BlobPart], file.name.replace(/\.[^.]*$/, '') + '.kmz')
-    : new File([stripped], file.name)
+    ? new File([writeKmz(out, files) as BlobPart], file.name.replace(/\.[^.]*$/, '') + '.kmz')
+    : new File([out], file.name)
 }

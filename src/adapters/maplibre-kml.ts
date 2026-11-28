@@ -2,6 +2,7 @@ import type { FeatureCollection, Feature as GjFeature, Geometry as GjGeometry } 
 import type { FilterSpecification, Map as MlMap } from 'maplibre-gl'
 import { resolveIconHref, resolveStyle, upgradeInsecureUrl } from '../kml/style'
 import { prepareIcons } from './kml-icons'
+import { elevatedFeatures, isResolved } from './altitude-geojson'
 import { childrenOf, type Feature, type Geometry, type KmlDocument, type Style } from '../kml/types'
 
 // 2D(MapLibre) では高度を無視する。アイコンは画像（取れなければ円）、hotSpot とラベル位置に対応。
@@ -61,18 +62,29 @@ function props(name: string | undefined, s: Style | undefined, resources: Record
   }
 }
 
-/** 文書モデルを GeoJSON へ。visibility=0 のフィーチャと、その配下は含めない */
-export function kmlToGeoJson(doc: KmlDocument, resources?: Record<string, string>): FeatureCollection {
+/**
+ * 文書モデルを GeoJSON へ。visibility=0 のフィーチャと、その配下は含めない。
+ * altitude を true にすると、resolveAltitudes で高さを解決したジオメトリを、地表に貼らないフィーチャ
+ * （Z は楕円体高。properties.elevated = true）として出す（Navara 用。MapLibre は高度を使わない）
+ */
+export function kmlToGeoJson(doc: KmlDocument, resources?: Record<string, string>, opts: { altitude?: boolean } = {}): FeatureCollection {
   const features: GjFeature[] = []
+  const hasResolved = (g: Geometry): boolean => (g.type === 'MultiGeometry' ? g.geometries.some(hasResolved) : isResolved(g))
+  const leaves = (g: Geometry): Geometry[] => (g.type === 'MultiGeometry' ? g.geometries.flatMap(leaves) : [g])
   const walk = (f: Feature, path: number[]) => {
     if (!f.visibility) return
     if (f.kind === 'Placemark') {
       if (!f.geometry) return
-      features.push({
-        type: 'Feature',
-        geometry: toGeoJsonGeometry(f.geometry),
-        properties: props(f.name, resolveStyle(doc, f), resources, path.join('/')),
-      })
+      const p = props(f.name, resolveStyle(doc, f), resources, path.join('/'))
+      if (opts.altitude && hasResolved(f.geometry)) {
+        // 地表に貼るものと貼らないものが混ざりうるので、MultiGeometry は部品ごとのフィーチャにする
+        for (const g of leaves(f.geometry)) {
+          if (isResolved(g)) features.push(...elevatedFeatures(g, p))
+          else features.push({ type: 'Feature', geometry: toGeoJsonGeometry(g), properties: p })
+        }
+        return
+      }
+      features.push({ type: 'Feature', geometry: toGeoJsonGeometry(f.geometry), properties: p })
     } else {
       childrenOf(f).forEach((c, i) => walk(c, [...path, i]))
     }
